@@ -1,6 +1,14 @@
 import * as THREE from "three";
 import { VRM } from "@pixiv/three-vrm";
 
+/**
+ * Fano VRM Controller
+ * Copyright (c) 2026 Ayush Pradhan
+ * Licensed under Apache-2.0 with additional attribution terms.
+ *
+ * Attribution required:
+ * "Fano VRM Controller by Ayush Pradhan"
+ */
 
 /**
  * This function helps in disposition of the material 
