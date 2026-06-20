@@ -4,9 +4,23 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node": "^26.0.0",
+    "@types/three": "^0.184.1",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "three": "^0.184.0"
+  }, 
+  "scripts": {
+    "build": "tsup index.ts --format esm,cjs --dts",
+    "dev": "tsup index.ts --format esm,cjs --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   }
 }
