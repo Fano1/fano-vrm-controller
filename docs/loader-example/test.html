@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fano VRMKit Loader Test</title>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #111;
+        font-family:
+          Inter,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      #canvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+
+      #panel {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 10;
+        width: 320px;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        backdrop-filter: blur(12px);
+      }
+
+      #panel h1 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      #status {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      #error {
+        margin-top: 10px;
+        color: #ff6b6b;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+
+      button {
+        margin-top: 12px;
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: white;
+        color: black;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #e8e8e8;
+      }
+    </style>
+
+    <!--
+      This lets the browser understand imports like:
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { VRMLoaderPlugin } from "@pixiv/three-vrm";
+
+      Without this, the browser sees bare imports and dies like a medieval peasant.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./node_modules/three/build/three.module.js",
+          "three/addons/": "./node_modules/three/examples/jsm/",
+          "@pixiv/three-vrm": "./node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <canvas id="canvas"></canvas>
+
+    <div id="panel">
+      <h1>Fano VRMKit Loader Test</h1>
+      <p id="status">Waiting...</p>
+      <button id="reload">Reload VRM</button>
+      <div id="error"></div>
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      // IMPORTANT:
+      // Run `bun run build` first.
+      // This imports your package from dist.
+      import { loadVRM } from "./dist/index.js";
+
+      const MODEL_URL = "./savatar.vrm";
+
+      const canvas = document.querySelector("#canvas");
+      const statusEl = document.querySelector("#status");
+      const errorEl = document.querySelector("#error");
+      const reloadBtn = document.querySelector("#reload");
+
+      let avatar = null;
+
+      function setStatus(message) {
+        statusEl.textContent = message;
+      }
+
+      function setError(error) {
+        errorEl.textContent = error ? String(error?.stack ?? error) : "";
+      }
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111111);
+
+      const camera = new THREE.PerspectiveCamera(
+        35,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+      );
+
+      camera.position.set(0, 1.35, 3);
+
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+      });
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 1.25, 0);
+      controls.enableDamping = true;
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+      directionalLight.position.set(1, 2, 3);
+      scene.add(directionalLight);
+
+      const grid = new THREE.GridHelper(10, 10);
+      scene.add(grid);
+
+      async function loadAvatar() {
+        try {
+          setError("");
+          setStatus("Loading VRM...");
+
+          if (avatar) {
+            avatar.dispose();
+            avatar = null;
+          }
+
+          avatar = await loadVRM(MODEL_URL, {
+            scene,
+
+            onProgress(progress) {
+              const percent = Math.round(progress.progress * 100);
+
+              if (progress.total > 0) {
+                setStatus(`Loading VRM... ${percent}%`);
+              } else {
+                setStatus(`Loading VRM... ${progress.loaded} bytes`);
+              }
+            },
+
+            vrmLoadOptions: {
+              // Advanced @pixiv/three-vrm loader options can go here.
+              // Most people should leave this empty.
+            },
+          });
+
+          // Useful default rotation for many VRM models.
+          avatar.scene.rotation.y = Math.PI;
+
+          setStatus("VRM loaded successfully. The anime goblin lives.");
+          console.log("Loaded avatar:", avatar);
+          console.log("Raw Pixiv VRM:", avatar.vrm);
+        } catch (error) {
+          console.error(error);
+          setStatus("Failed to load VRM.");
+          setError(error);
+        }
+      }
+
+      const clock = new THREE.Clock();
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const delta = clock.getDelta();
+
+        controls.update();
+
+        if (avatar) {
+          avatar.update(delta);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      reloadBtn.addEventListener("click", () => {
+        loadAvatar();
+      });
+
+      loadAvatar();
+      animate();
+    </script>
+  </body>
+</html>
