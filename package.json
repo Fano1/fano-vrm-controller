@@ -1,26 +1,63 @@
 {
-  "name": "@fano-vrm-controller",
-  "module": "index.ts",
+  "name": "@fano/vrm-controller",
+  "version": "0.0.1",
+  "description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm.",
+  "author": "Ayush Pradhan",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/Fano1/fano-vrm-controller",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fano1/fano-vrm-controller.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fano1/fano-vrm-controller/issues"
+  },
+  "keywords": [
+    "vrm",
+    "three-vrm",
+    "threejs",
+    "three",
+    "avatar",
+    "vtuber",
+    "fano"
+  ],
   "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^26.0.0",
-    "@types/three": "^0.184.1",
-    "tsup": "^8.5.1",
-    "vitest": "^4.1.9"
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
   },
-  "peerDependencies": {
-    "typescript": "^6.0.3"
-  },
-  "dependencies": {
-    "@pixiv/three-vrm": "^3.5.4",
-    "three": "^0.184.0"
-  }, 
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsup index.ts --format esm,cjs --dts",
     "dev": "tsup index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
-  }
+    "test:watch": "vitest",
+    "prepack": "bun run build"
+  },
+  "peerDependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "@types/bun": "latest",
+    "@types/node": "^26.0.0",
+    "three": "^0.184.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "private": true
 }

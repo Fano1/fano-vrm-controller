@@ -1,0 +1,68 @@
+Fano VRM Controller License
+
+Copyright (c) 2026 Ayush Pradhan
+
+This software is licensed under the Apache License, Version 2.0, with the Additional Attribution Terms listed below.
+
+By using, copying, modifying, distributing, publishing, sublicensing, or otherwise working with this software, you agree to comply with both:
+
+1. The Apache License, Version 2.0
+2. The Additional Attribution Terms in this file
+
+If there is a conflict between the Apache License, Version 2.0 and the Additional Attribution Terms, the Additional Attribution Terms apply only to the extent necessary to require attribution to the original author and prevent misrepresentation of authorship.
+
+Additional Attribution Terms
+
+1. Attribution Required
+
+Any use, copy, modification, distribution, publication, or substantial reuse of this software must include clear credit to the original author:
+
+"Fano VRM Controller by Ayush Pradhan"
+
+This attribution must appear in a reasonable and visible location, such as one or more of the following:
+
+* project README
+* documentation
+* package metadata
+* credits page
+* about page
+* source code notice
+* software acknowledgements
+* NOTICE file
+
+2. Copyright Notice Required
+
+The copyright notice and this license notice must be included in all copies or substantial portions of the software.
+
+3. NOTICE File Required
+
+If this software is distributed with a NOTICE file, the NOTICE file must be preserved in redistributed copies or substantial portions of the software.
+
+4. No Misrepresentation
+
+You may not claim that you are the original creator of this software.
+You may not remove, hide, or alter attribution in a way that suggests the original software was created entirely by someone else.
+
+5. Modifications Allowed
+
+You may modify this software and distribute modified versions, provided that the original attribution, copyright notice, license notice, and NOTICE file are preserved.
+
+6. Commercial Use Allowed
+
+Commercial use is allowed, provided that the attribution, copyright notice, license notice, and NOTICE file requirements are followed.
+
+7. Termination
+
+If you violate the attribution, copyright notice, NOTICE file, or no-misrepresentation requirements, your permission to use, copy, modify, distribute, publish, sublicense, or otherwise work with this software is automatically terminated until the violation is corrected.
+
+8. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+IN NO EVENT SHALL THE AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Apache License, Version 2.0 Notice
+
+This software also uses the Apache License, Version 2.0 as its base license.
+
+The Apache License, Version 2.0 allows use, reproduction, modification, distribution, and sublicensing of the software, subject to its conditions, including preservation of copyright, license, attribution, trademark, patent, and NOTICE information.

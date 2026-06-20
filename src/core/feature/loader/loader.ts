@@ -1,3 +1,12 @@
+/**
+ * Fano VRM Controller
+ * Copyright (c) 2026 Ayush Pradhan
+ * Licensed under Apache-2.0 with additional attribution terms.
+ *
+ * Attribution required:
+ * "Fano VRM Controller by Ayush Pradhan"
+ */
+
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
