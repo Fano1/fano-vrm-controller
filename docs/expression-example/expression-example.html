@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Fano VRM Controller — Expression Example</title>
+
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				margin: 0;
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+				background: #111;
+				font-family:
+					Inter,
+					system-ui,
+					-apple-system,
+					BlinkMacSystemFont,
+					"Segoe UI",
+					sans-serif;
+			}
+
+			#canvas {
+				width: 100vw;
+				height: 100vh;
+				display: block;
+			}
+
+			#panel {
+				position: fixed;
+				top: 16px;
+				left: 16px;
+				z-index: 10;
+				width: 320px;
+				max-height: calc(100vh - 32px);
+				overflow-y: auto;
+				padding: 14px;
+				border: 1px solid rgba(255, 255, 255, 0.12);
+				border-radius: 14px;
+				background: rgba(0, 0, 0, 0.7);
+				color: white;
+				backdrop-filter: blur(12px);
+			}
+
+			#panel h1 {
+				margin: 0 0 4px;
+				font-size: 16px;
+			}
+
+			#status {
+				margin: 0;
+				color: rgba(255, 255, 255, 0.7);
+				font-size: 13px;
+				line-height: 1.5;
+			}
+
+			#error {
+				margin-top: 10px;
+				color: #ff6b6b;
+				font-size: 13px;
+				white-space: pre-wrap;
+			}
+
+			.emotions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+				margin-top: 12px;
+			}
+
+			.emotions button,
+			#reset {
+				flex: 1 1 auto;
+				border: 0;
+				border-radius: 10px;
+				padding: 8px 10px;
+				background: white;
+				color: black;
+				font-weight: 700;
+				font-size: 12px;
+				cursor: pointer;
+			}
+
+			.emotions button:hover,
+			#reset:hover {
+				background: #e8e8e8;
+			}
+
+			#reset {
+				margin-top: 8px;
+				width: 100%;
+				background: #ff6b6b;
+				color: white;
+			}
+
+			#sliders {
+				margin-top: 14px;
+				border-top: 1px solid rgba(255, 255, 255, 0.12);
+				padding-top: 12px;
+			}
+
+			.slider-row {
+				display: grid;
+				grid-template-columns: 84px 1fr 34px;
+				align-items: center;
+				gap: 8px;
+				margin-bottom: 8px;
+				font-size: 12px;
+			}
+
+			.slider-row label {
+				color: rgba(255, 255, 255, 0.85);
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+
+			.slider-row input[type="range"] {
+				width: 100%;
+				accent-color: #7c9cff;
+			}
+
+			.slider-row .value {
+				text-align: right;
+				color: rgba(255, 255, 255, 0.6);
+				font-variant-numeric: tabular-nums;
+			}
+		</style>
+
+		<!--
+      Bare import specifiers ("three", "@pixiv/three-vrm") only work with an
+      import map. Paths are relative to THIS file, which lives two folders deep
+      in docs/, so we climb back to the repo root with ../../ before reaching
+      node_modules. Serve the repo root (e.g. `bunx serve .`) and open
+      /docs/expression-example/expression-example.html.
+    -->
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "../../node_modules/three/build/three.module.js",
+					"three/addons/": "../../node_modules/three/examples/jsm/",
+					"@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+				}
+			}
+		</script>
+	</head>
+
+	<body>
+		<canvas id="canvas"></canvas>
+
+		<div id="panel">
+			<h1>Expression Controller</h1>
+			<p id="status">Waiting...</p>
+
+			<div class="emotions" id="emotions"></div>
+			<button id="reset">Reset all expressions</button>
+
+			<div id="sliders"></div>
+			<div id="error"></div>
+		</div>
+
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+			// IMPORTANT: run `bun run build` first — this imports the built package.
+			import {
+				loadVRM,
+				createVRMExpressionController,
+				VRMExpressionPreset,
+			} from "../../dist/index.js";
+
+			const MODEL_URL = "../../avatar.vrm";
+
+			// Emotion presets get quick one-click buttons; the rest (visemes, blinks,
+			// look-at, custom shapes) show up as sliders once the model loads.
+			const EMOTION_PRESETS = [
+				VRMExpressionPreset.Happy,
+				VRMExpressionPreset.Angry,
+				VRMExpressionPreset.Sad,
+				VRMExpressionPreset.Relaxed,
+				VRMExpressionPreset.Surprised,
+			];
+
+			const canvas = document.querySelector("#canvas");
+			const statusEl = document.querySelector("#status");
+			const errorEl = document.querySelector("#error");
+			const emotionsEl = document.querySelector("#emotions");
+			const slidersEl = document.querySelector("#sliders");
+			const resetBtn = document.querySelector("#reset");
+
+			let avatar = null;
+			/** @type {import("../../dist/index.js").VRMExpressionController | null} */
+			let face = null;
+
+			const setStatus = (message) => (statusEl.textContent = message);
+			const setError = (error) =>
+				(errorEl.textContent = error ? String(error?.stack ?? error) : "");
+
+			// ---- Three.js boilerplate ------------------------------------------------
+
+			const scene = new THREE.Scene();
+			scene.background = new THREE.Color(0x111111);
+
+			const camera = new THREE.PerspectiveCamera(
+				35,
+				window.innerWidth / window.innerHeight,
+				0.1,
+				100,
+			);
+			camera.position.set(0, 1.35, 2.2);
+
+			const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+			const controls = new OrbitControls(camera, renderer.domElement);
+			controls.target.set(0, 1.3, 0); // frame the face
+			controls.enableDamping = true;
+
+			scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+			const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+			dirLight.position.set(1, 2, 3);
+			scene.add(dirLight);
+			scene.add(new THREE.GridHelper(10, 10));
+
+			// ---- UI wiring -----------------------------------------------------------
+
+			const sliderValueEls = new Map();
+
+			function buildEmotionButtons() {
+				emotionsEl.innerHTML = "";
+
+				for (const name of EMOTION_PRESETS) {
+					if (!face.hasExpression(name)) continue;
+
+					const button = document.createElement("button");
+					button.textContent = name;
+					button.addEventListener("click", () => {
+						// Exclusive emotion: clear everything, then set this one full.
+						face.reset();
+						face.setExpression(name, 1);
+						syncSliders();
+					});
+					emotionsEl.appendChild(button);
+				}
+			}
+
+			// Build one slider per expression the model actually defines, so this
+			// adapts to any VRM instead of hard-coding a name list.
+			function buildSliders() {
+				slidersEl.innerHTML = "";
+				sliderValueEls.clear();
+
+				const names = face.getExpressionNames().sort();
+
+				if (names.length === 0) {
+					slidersEl.textContent = "This model exposes no expressions.";
+					return;
+				}
+
+				for (const name of names) {
+					const row = document.createElement("div");
+					row.className = "slider-row";
+
+					const label = document.createElement("label");
+					label.textContent = name;
+					label.title = name;
+
+					const range = document.createElement("input");
+					range.type = "range";
+					range.min = "0";
+					range.max = "1";
+					range.step = "0.01";
+					range.value = String(face.getExpression(name));
+
+					const value = document.createElement("span");
+					value.className = "value";
+					value.textContent = range.value;
+
+					range.addEventListener("input", () => {
+						const weight = Number(range.value);
+						face.setExpression(name, weight); // flushed on avatar.update(delta)
+						value.textContent = weight.toFixed(2);
+					});
+
+					sliderValueEls.set(name, { range, value });
+					row.append(label, range, value);
+					slidersEl.appendChild(row);
+				}
+			}
+
+			// Pull current weights back into the UI (after preset buttons / reset).
+			function syncSliders() {
+				for (const [name, { range, value }] of sliderValueEls) {
+					const weight = face.getExpression(name);
+					range.value = String(weight);
+					value.textContent = weight.toFixed(2);
+				}
+			}
+
+			resetBtn.addEventListener("click", () => {
+				face?.reset();
+				syncSliders();
+			});
+
+			// ---- Load ----------------------------------------------------------------
+
+			async function loadAvatar() {
+				try {
+					setError("");
+					setStatus("Loading VRM...");
+
+					avatar = await loadVRM(MODEL_URL, {
+						scene,
+						onProgress(progress) {
+							const percent = Math.round(progress.progress * 100);
+							setStatus(
+								progress.total > 0
+									? `Loading VRM... ${percent}%`
+									: `Loading VRM... ${progress.loaded} bytes`,
+							);
+						},
+					});
+
+					avatar.scene.rotation.y = Math.PI; // face the camera
+
+					face = createVRMExpressionController(avatar.vrm);
+
+					if (!face.available) {
+						setStatus("Loaded, but this model has no expressionManager.");
+						return;
+					}
+
+					buildEmotionButtons();
+					buildSliders();
+					setStatus(
+						`Loaded. ${face.getExpressionNames().length} expressions available — drag a slider.`,
+					);
+				} catch (error) {
+					console.error(error);
+					setStatus("Failed to load VRM.");
+					setError(error);
+				}
+			}
+
+			// ---- Render loop ---------------------------------------------------------
+
+			const clock = new THREE.Clock();
+
+			function animate() {
+				requestAnimationFrame(animate);
+				const delta = clock.getDelta();
+
+				controls.update();
+				// avatar.update flushes expression weights (and spring bones, look-at…).
+				avatar?.update(delta);
+
+				renderer.render(scene, camera);
+			}
+
+			window.addEventListener("resize", () => {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+			});
+
+			loadAvatar();
+			animate();
+		</script>
+	</body>
+</html>

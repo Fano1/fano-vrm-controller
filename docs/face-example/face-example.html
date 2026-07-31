@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Fano VRM Controller — Face Example</title>
+
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				margin: 0;
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+				background: #111;
+				font-family:
+					Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+					sans-serif;
+			}
+
+			#canvas {
+				width: 100vw;
+				height: 100vh;
+				display: block;
+			}
+
+			#panel {
+				position: fixed;
+				top: 16px;
+				left: 16px;
+				z-index: 10;
+				width: 340px;
+				max-height: calc(100vh - 32px);
+				overflow-y: auto;
+				padding: 14px;
+				border: 1px solid rgba(255, 255, 255, 0.12);
+				border-radius: 14px;
+				background: rgba(0, 0, 0, 0.7);
+				color: white;
+				backdrop-filter: blur(12px);
+			}
+
+			#panel h1 {
+				margin: 0 0 4px;
+				font-size: 16px;
+			}
+
+			#status {
+				margin: 0;
+				color: rgba(255, 255, 255, 0.7);
+				font-size: 13px;
+				line-height: 1.5;
+			}
+
+			#error {
+				margin-top: 10px;
+				color: #ff6b6b;
+				font-size: 13px;
+				white-space: pre-wrap;
+			}
+
+			.section {
+				margin-top: 14px;
+				border-top: 1px solid rgba(255, 255, 255, 0.12);
+				padding-top: 12px;
+			}
+
+			.section > h2 {
+				margin: 0 0 8px;
+				font-size: 12px;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				color: rgba(255, 255, 255, 0.55);
+			}
+
+			.row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+			}
+
+			button {
+				flex: 1 1 auto;
+				border: 0;
+				border-radius: 10px;
+				padding: 8px 10px;
+				background: white;
+				color: black;
+				font-weight: 700;
+				font-size: 12px;
+				cursor: pointer;
+			}
+
+			button:hover {
+				background: #e8e8e8;
+			}
+
+			button.ghost {
+				background: rgba(255, 255, 255, 0.12);
+				color: white;
+			}
+
+			button.ghost:hover {
+				background: rgba(255, 255, 255, 0.22);
+			}
+
+			#reset {
+				margin-top: 8px;
+				width: 100%;
+				background: #ff6b6b;
+				color: white;
+			}
+
+			.slider-row {
+				display: grid;
+				grid-template-columns: 40px 1fr 34px;
+				align-items: center;
+				gap: 8px;
+				margin-bottom: 8px;
+				font-size: 12px;
+			}
+
+			.slider-row label {
+				color: rgba(255, 255, 255, 0.85);
+			}
+
+			.slider-row input[type="range"] {
+				width: 100%;
+				accent-color: #7c9cff;
+			}
+
+			.slider-row .value {
+				text-align: right;
+				color: rgba(255, 255, 255, 0.6);
+				font-variant-numeric: tabular-nums;
+			}
+
+			.toggle {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				font-size: 12px;
+				color: rgba(255, 255, 255, 0.85);
+				margin-bottom: 8px;
+			}
+		</style>
+
+		<!--
+      Bare specifiers ("three", "@pixiv/three-vrm") need an import map. Paths are
+      relative to THIS file (two folders deep in docs/), so we climb to the repo
+      root with ../../. Serve the repo root (`bunx serve .`) and open
+      /docs/face-example/face-example.html.
+    -->
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "../../node_modules/three/build/three.module.js",
+					"three/addons/": "../../node_modules/three/examples/jsm/",
+					"@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+				}
+			}
+		</script>
+	</head>
+
+	<body>
+		<canvas id="canvas"></canvas>
+
+		<div id="panel">
+			<h1>Face Controller</h1>
+			<p id="status">Waiting...</p>
+
+			<div class="section">
+				<h2>Emotion</h2>
+				<div class="row" id="emotions"></div>
+			</div>
+
+			<div class="section">
+				<h2>Viseme (lip-sync)</h2>
+				<div id="visemes"></div>
+			</div>
+
+			<div class="section">
+				<h2>Eyes</h2>
+				<label class="toggle">
+					<input type="checkbox" id="autoblink" />
+					Auto-blink
+				</label>
+				<div class="slider-row">
+					<label for="blink">blink</label>
+					<input type="range" id="blink" min="0" max="1" step="0.01" value="0" />
+					<span class="value" id="blink-value">0.00</span>
+				</div>
+				<label class="toggle">
+					<input type="checkbox" id="gaze" />
+					Gaze follows cursor
+				</label>
+			</div>
+
+			<div class="section">
+				<h2>Eyebrows</h2>
+				<div class="row" id="brows"></div>
+			</div>
+
+			<button id="reset">Reset face</button>
+			<div id="error"></div>
+		</div>
+
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+			// IMPORTANT: run `bun run build` first — this imports the built package.
+			import { loadVRM, createVRMFace } from "../../dist/index.js";
+
+			const MODEL_URL = "../../avatar.vrm";
+
+			const canvas = document.querySelector("#canvas");
+			const statusEl = document.querySelector("#status");
+			const errorEl = document.querySelector("#error");
+			const emotionsEl = document.querySelector("#emotions");
+			const visemesEl = document.querySelector("#visemes");
+			const browsEl = document.querySelector("#brows");
+			const autoBlinkEl = document.querySelector("#autoblink");
+			const blinkEl = document.querySelector("#blink");
+			const blinkValueEl = document.querySelector("#blink-value");
+			const gazeEl = document.querySelector("#gaze");
+			const resetBtn = document.querySelector("#reset");
+
+			let avatar = null;
+			/** @type {import("../../dist/index.js").VRMFace | null} */
+			let face = null;
+
+			const setStatus = (m) => (statusEl.textContent = m);
+			const setError = (e) =>
+				(errorEl.textContent = e ? String(e?.stack ?? e) : "");
+
+			// ---- Three.js boilerplate ------------------------------------------------
+
+			const scene = new THREE.Scene();
+			scene.background = new THREE.Color(0x111111);
+
+			const camera = new THREE.PerspectiveCamera(
+				35,
+				window.innerWidth / window.innerHeight,
+				0.1,
+				100,
+			);
+			camera.position.set(0, 1.35, 2.2);
+
+			const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+			const controls = new OrbitControls(camera, renderer.domElement);
+			controls.target.set(0, 1.3, 0);
+			controls.enableDamping = true;
+
+			scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+			const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+			dirLight.position.set(1, 2, 3);
+			scene.add(dirLight);
+			scene.add(new THREE.GridHelper(10, 10));
+
+			// An empty object the eyes can track. We move it with the cursor.
+			const gazeTarget = new THREE.Object3D();
+			gazeTarget.position.set(0, 1.3, 2);
+			scene.add(gazeTarget);
+
+			// ---- UI wiring -----------------------------------------------------------
+
+			// Emotion: one exclusive button per preset the model can show.
+			function buildEmotionButtons() {
+				emotionsEl.innerHTML = "";
+				const names = face.emotion.list();
+
+				for (const name of names.length ? names : face.emotion.presets) {
+					const b = document.createElement("button");
+					b.textContent = name;
+					b.addEventListener("click", () => face.emotion.setExclusive(name));
+					emotionsEl.appendChild(b);
+				}
+			}
+
+			// Viseme: one slider per vowel preset.
+			function buildVisemeSliders() {
+				visemesEl.innerHTML = "";
+
+				for (const preset of face.viseme.presets) {
+					const row = document.createElement("div");
+					row.className = "slider-row";
+
+					const label = document.createElement("label");
+					label.textContent = preset;
+
+					const range = document.createElement("input");
+					range.type = "range";
+					range.min = "0";
+					range.max = "1";
+					range.step = "0.01";
+					range.value = "0";
+
+					const value = document.createElement("span");
+					value.className = "value";
+					value.textContent = "0.00";
+
+					range.addEventListener("input", () => {
+						const w = Number(range.value);
+						face.viseme.set(preset, w);
+						value.textContent = w.toFixed(2);
+					});
+
+					row.append(label, range, value);
+					visemesEl.appendChild(row);
+				}
+			}
+
+			// Eyebrows: exclusive shape buttons + a clear.
+			function buildBrowButtons() {
+				browsEl.innerHTML = "";
+
+				if (!face.brow.available) {
+					browsEl.textContent = "This model has no eyebrow morphs.";
+					return;
+				}
+
+				for (const shape of face.brow.shapes) {
+					const b = document.createElement("button");
+					b.textContent = shape;
+					b.addEventListener("click", () => face.brow.setExclusive(shape));
+					browsEl.appendChild(b);
+				}
+
+				const clear = document.createElement("button");
+				clear.textContent = "clear";
+				clear.className = "ghost";
+				clear.addEventListener("click", () => face.brow.reset());
+				browsEl.appendChild(clear);
+			}
+
+			autoBlinkEl.addEventListener("change", () => {
+				if (autoBlinkEl.checked) {
+					face.eye.autoBlink();
+					blinkEl.disabled = true;
+				} else {
+					face.eye.stopAutoBlink();
+					blinkEl.disabled = false;
+				}
+			});
+
+			blinkEl.addEventListener("input", () => {
+				const w = Number(blinkEl.value);
+				face.eye.blink(w);
+				blinkValueEl.textContent = w.toFixed(2);
+			});
+
+			gazeEl.addEventListener("change", () => {
+				if (gazeEl.checked) face.eye.gaze(gazeTarget);
+				else face.eye.clearGaze();
+			});
+
+			// Move the gaze target with the pointer (mapped to a plane in front of
+			// the avatar). VRMLookAt points the eyes at it every frame.
+			window.addEventListener("pointermove", (event) => {
+				const nx = (event.clientX / window.innerWidth) * 2 - 1;
+				const ny = -(event.clientY / window.innerHeight) * 2 + 1;
+				gazeTarget.position.set(nx * 1.5, 1.3 + ny * 0.6, 2);
+			});
+
+			resetBtn.addEventListener("click", () => {
+				face?.reset();
+				autoBlinkEl.checked = false;
+				gazeEl.checked = false;
+				blinkEl.disabled = false;
+				blinkEl.value = "0";
+				blinkValueEl.textContent = "0.00";
+			});
+
+			// ---- Load ----------------------------------------------------------------
+
+			async function loadAvatar() {
+				try {
+					setError("");
+					setStatus("Loading VRM...");
+
+					avatar = await loadVRM(MODEL_URL, {
+						scene,
+						onProgress(p) {
+							const pct = Math.round(p.progress * 100);
+							setStatus(
+								p.total > 0
+									? `Loading VRM... ${pct}%`
+									: `Loading VRM... ${p.loaded} bytes`,
+							);
+						},
+					});
+
+					avatar.scene.rotation.y = Math.PI; // face the camera
+
+					face = createVRMFace(avatar.vrm);
+
+					// The seam: advance per-frame face state (auto-blink) BEFORE
+					// vrm.update flushes weights. A Mixamo mixer would register here too.
+					avatar.registerUpdate((delta) => face.update(delta));
+
+					buildEmotionButtons();
+					buildVisemeSliders();
+					buildBrowButtons();
+
+					setStatus(
+						face.available
+							? "Loaded. Try the emotion, viseme, eye and brow controls."
+							: "Loaded (no standard expressions — using raw morph fallback).",
+					);
+				} catch (error) {
+					console.error(error);
+					setStatus("Failed to load VRM.");
+					setError(error);
+				}
+			}
+
+			// ---- Render loop ---------------------------------------------------------
+
+			const clock = new THREE.Clock();
+
+			function animate() {
+				requestAnimationFrame(animate);
+				const delta = clock.getDelta();
+
+				controls.update();
+				// Runs registered updaters (face.update → auto-blink) then vrm.update,
+				// which flushes expression weights, spring bones, and look-at.
+				avatar?.update(delta);
+
+				renderer.render(scene, camera);
+			}
+
+			window.addEventListener("resize", () => {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+			});
+
+			loadAvatar();
+			animate();
+		</script>
+	</body>
+</html>
