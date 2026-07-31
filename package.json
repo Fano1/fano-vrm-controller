@@ -1,6 +1,6 @@
 {
 	"name": "@fanoalone/vrm-controller",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm.",
 	"author": "Ayush Pradhan",
 	"license": "SEE LICENSE IN LICENSE",
