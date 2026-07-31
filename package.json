@@ -71,6 +71,7 @@
 		"@types/bun": "latest",
 		"@types/node": "^26.0.0",
 		"@types/react": "^19.0.0",
+		"@types/three": "^0.185.1",
 		"react": "^19.0.0",
 		"three": "^0.184.0",
 		"tsup": "^8.5.1",
