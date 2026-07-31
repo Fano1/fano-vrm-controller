@@ -7,7 +7,7 @@
  * "Fano VRM Controller by Ayush Pradhan"
  */
 
-import * as THREE from "three";
+import type * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
     type VRM,
@@ -33,12 +33,35 @@ export type LoadVRMOptions = {
 	vrmLoadOptions?: VRMLoaderPluginOptions;
 };
 
+/** A per-frame callback registered on a {@link VRMAvatar}. */
+export type VRMUpdateFn = (delta: number) => void;
+
 export type VRMAvatar = {
 	vrm: VRM;
 	scene: THREE.Group;
-	update: (delta: number) => void;
-	dispose: () => void;
 
+	/**
+	 * Register a callback that runs every frame, BEFORE `vrm.update(delta)`.
+	 * Returns an unregister function.
+	 *
+	 * This is the seam for the animation engine and any per-frame face driver
+	 * (a Mixamo `THREE.AnimationMixer`, the auto-blink FSM, IK, …). Because
+	 * `vrm.update()` always runs LAST in {@link VRMAvatar.update}, spring bones
+	 * and look-at always react to the final animated pose — so a future Mixamo
+	 * mixer, expression weights, and look-at never clash or fight for order.
+	 *
+	 * ```ts
+	 * // future: drive a retargeted Mixamo clip without touching the loader
+	 * const mixer = new THREE.AnimationMixer(avatar.vrm.scene);
+	 * const stop = avatar.registerUpdate((delta) => mixer.update(delta));
+	 * ```
+	 */
+	registerUpdate: (fn: VRMUpdateFn) => () => void;
+
+	/** Advance registered updaters (in registration order), then the VRM. */
+	update: (delta: number) => void;
+
+	dispose: () => void;
 };
 
 export async function loadVRM(
@@ -87,15 +110,34 @@ export async function loadVRM(
 		options.scene.add(vrm.scene);
 	}
 
+	// Per-frame updaters (mixer, auto-blink, …). Insertion order is preserved
+	// by Set iteration, and `vrm.update` always runs after them.
+	const updaters = new Set<VRMUpdateFn>();
+	let disposed = false;
+
 	const avatar: VRMAvatar = {
 		vrm,
 		scene: vrm.scene,
 
+		registerUpdate(fn: VRMUpdateFn) {
+			updaters.add(fn);
+			return () => {
+				updaters.delete(fn);
+			};
+		},
+
 		update(delta: number) {
+			if (disposed) return;
+			for (const fn of updaters) {
+				fn(delta);
+			}
 			vrm.update(delta);
 		},
 
 		dispose() {
+			if (disposed) return;
+			disposed = true;
+			updaters.clear();
 			disposeVRM(vrm);
 		},
 	};

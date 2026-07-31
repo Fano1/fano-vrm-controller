@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Fano VRM Controller — Full Showcase</title>
+
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				margin: 0;
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+				background: #111;
+				font-family:
+					Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+					sans-serif;
+			}
+
+			#canvas {
+				width: 100vw;
+				height: 100vh;
+				display: block;
+			}
+
+			#panel {
+				position: fixed;
+				top: 16px;
+				left: 16px;
+				z-index: 10;
+				width: 340px;
+				max-height: calc(100vh - 32px);
+				overflow-y: auto;
+				padding: 14px;
+				border: 1px solid rgba(255, 255, 255, 0.12);
+				border-radius: 14px;
+				background: rgba(0, 0, 0, 0.7);
+				color: white;
+				backdrop-filter: blur(12px);
+			}
+
+			#panel h1 {
+				margin: 0 0 4px;
+				font-size: 16px;
+			}
+
+			#status {
+				margin: 0;
+				color: rgba(255, 255, 255, 0.7);
+				font-size: 13px;
+				line-height: 1.5;
+			}
+
+			#error {
+				margin-top: 10px;
+				color: #ff6b6b;
+				font-size: 13px;
+				white-space: pre-wrap;
+			}
+
+			.section {
+				margin-top: 14px;
+				border-top: 1px solid rgba(255, 255, 255, 0.12);
+				padding-top: 12px;
+			}
+
+			.section > h2 {
+				margin: 0 0 8px;
+				font-size: 12px;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				color: rgba(255, 255, 255, 0.55);
+			}
+
+			.row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+			}
+
+			button {
+				flex: 1 1 auto;
+				border: 0;
+				border-radius: 10px;
+				padding: 8px 10px;
+				background: white;
+				color: black;
+				font-weight: 700;
+				font-size: 12px;
+				cursor: pointer;
+			}
+
+			button:hover {
+				background: #e8e8e8;
+			}
+
+			button.ghost {
+				background: rgba(255, 255, 255, 0.12);
+				color: white;
+			}
+
+			button.ghost:hover {
+				background: rgba(255, 255, 255, 0.22);
+			}
+
+			button:disabled {
+				opacity: 0.4;
+				cursor: default;
+			}
+
+			#reset {
+				margin-top: 8px;
+				width: 100%;
+				background: #ff6b6b;
+				color: white;
+			}
+
+			.slider-row {
+				display: grid;
+				grid-template-columns: 40px 1fr 34px;
+				align-items: center;
+				gap: 8px;
+				margin-bottom: 8px;
+				font-size: 12px;
+			}
+
+			.slider-row label {
+				color: rgba(255, 255, 255, 0.85);
+			}
+
+			.slider-row input[type="range"] {
+				width: 100%;
+				accent-color: #7c9cff;
+			}
+
+			.slider-row .value {
+				text-align: right;
+				color: rgba(255, 255, 255, 0.6);
+				font-variant-numeric: tabular-nums;
+			}
+
+			.toggle {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				font-size: 12px;
+				color: rgba(255, 255, 255, 0.85);
+				margin-bottom: 8px;
+			}
+
+			.anim-row {
+				display: flex;
+				gap: 6px;
+				margin-bottom: 8px;
+			}
+
+			.anim-row input[type="text"],
+			.anim-row select {
+				flex: 1 1 auto;
+				min-width: 0;
+				padding: 8px 10px;
+				border-radius: 10px;
+				border: 1px solid rgba(255, 255, 255, 0.2);
+				background: rgba(255, 255, 255, 0.08);
+				color: white;
+				font-size: 12px;
+			}
+
+			.anim-row button {
+				flex: 0 0 auto;
+			}
+
+			#anim-status {
+				margin: 8px 0 0;
+				font-size: 12px;
+				color: rgba(255, 255, 255, 0.6);
+			}
+
+			#playlist {
+				margin-top: 8px;
+			}
+		</style>
+
+		<!--
+      Bare specifiers ("three", "@pixiv/three-vrm") need an import map. Paths are
+      relative to THIS file (two folders deep in docs/), so we climb to the repo
+      root with ../../. Serve the repo root (`bunx serve .`) and open
+      /docs/full-example/full-example.html.
+    -->
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "../../node_modules/three/build/three.module.js",
+					"three/addons/": "../../node_modules/three/examples/jsm/",
+					"@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+				}
+			}
+		</script>
+	</head>
+
+	<body>
+		<canvas id="canvas"></canvas>
+
+		<div id="panel">
+			<h1>Full Showcase</h1>
+			<p id="status">Waiting...</p>
+
+			<div class="section">
+				<h2>Emotion</h2>
+				<div class="row" id="emotions"></div>
+			</div>
+
+			<div class="section">
+				<h2>Viseme (lip-sync)</h2>
+				<div id="visemes"></div>
+			</div>
+
+			<div class="section">
+				<h2>Eyes</h2>
+				<label class="toggle">
+					<input type="checkbox" id="autoblink" />
+					Auto-blink
+				</label>
+				<div class="slider-row">
+					<label for="blink">blink</label>
+					<input type="range" id="blink" min="0" max="1" step="0.01" value="0" />
+					<span class="value" id="blink-value">0.00</span>
+				</div>
+				<label class="toggle">
+					<input type="checkbox" id="gaze" />
+					Gaze follows cursor
+				</label>
+			</div>
+
+			<div class="section">
+				<h2>Eyebrows</h2>
+				<div class="row" id="brows"></div>
+			</div>
+
+			<button id="reset">Reset face</button>
+
+			<div class="section">
+				<h2>Body Posing</h2>
+				<div class="anim-row">
+					<select id="bone-select"></select>
+				</div>
+				<div class="slider-row">
+					<label for="bone-x">X</label>
+					<input type="range" id="bone-x" min="-180" max="180" step="1" value="0" />
+					<span class="value" id="bone-x-value">0°</span>
+				</div>
+				<div class="slider-row">
+					<label for="bone-y">Y</label>
+					<input type="range" id="bone-y" min="-180" max="180" step="1" value="0" />
+					<span class="value" id="bone-y-value">0°</span>
+				</div>
+				<div class="slider-row">
+					<label for="bone-z">Z</label>
+					<input type="range" id="bone-z" min="-180" max="180" step="1" value="0" />
+					<span class="value" id="bone-z-value">0°</span>
+				</div>
+				<p style="margin: 0 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.6);">
+					Driving Y to exactly ±180 can hit gimbal lock — X/Z may shift together.
+				</p>
+				<div class="row">
+					<button id="reset-bone" class="ghost">Reset joint</button>
+					<button id="reset-pose" class="ghost">Reset whole pose</button>
+				</div>
+			</div>
+
+			<div class="section">
+				<h2>Mixamo Animation</h2>
+				<p style="margin: 0 0 8px; font-size: 12px; color: rgba(255, 255, 255, 0.6);">
+					Path to a Mixamo <code>.fbx</code> download, relative to this file.
+				</p>
+				<div class="anim-row">
+					<input type="text" id="anim-url" value="../../animation/RumbaDancing.fbx" />
+					<button id="play-anim">Play</button>
+				</div>
+				<div class="row">
+					<button id="stop-anim" class="ghost">Stop</button>
+				</div>
+				<p id="anim-status"></p>
+
+				<div id="playlist" class="row">
+					<!-- Filled in with one-click preset buttons, one per ANIMATION_PRESETS entry. -->
+				</div>
+			</div>
+
+			<div id="error"></div>
+		</div>
+
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+			// IMPORTANT: run `bun run build` first — this imports the built package.
+			import {
+				loadVRM,
+				createVRMFace,
+				createVRMBody,
+				loadMixamoAnimation,
+			} from "../../dist/index.js";
+
+			const MODEL_URL = "../../avatar.vrm";
+			// One-click presets — edit to match whatever .fbx files you've downloaded.
+			// Paths may contain spaces (Mixamo's default download names); they're
+			// encodeURI()'d in playAnimation() below before being fetched.
+			const ANIMATION_PRESETS = [
+				"../../animation/RumbaDancing.fbx",
+				"../../animation/Snake Hip Hop Dance.fbx",
+				"../../animation/Booty Hip Hop Dance.fbx",
+				"../../animation/Macarena Dance.fbx",
+			];
+
+			const canvas = document.querySelector("#canvas");
+			const statusEl = document.querySelector("#status");
+			const errorEl = document.querySelector("#error");
+			const emotionsEl = document.querySelector("#emotions");
+			const visemesEl = document.querySelector("#visemes");
+			const browsEl = document.querySelector("#brows");
+			const autoBlinkEl = document.querySelector("#autoblink");
+			const blinkEl = document.querySelector("#blink");
+			const blinkValueEl = document.querySelector("#blink-value");
+			const gazeEl = document.querySelector("#gaze");
+			const resetBtn = document.querySelector("#reset");
+			const boneSelectEl = document.querySelector("#bone-select");
+			const boneAxisEls = {
+				x: document.querySelector("#bone-x"),
+				y: document.querySelector("#bone-y"),
+				z: document.querySelector("#bone-z"),
+			};
+			const boneAxisValueEls = {
+				x: document.querySelector("#bone-x-value"),
+				y: document.querySelector("#bone-y-value"),
+				z: document.querySelector("#bone-z-value"),
+			};
+			const resetBoneBtn = document.querySelector("#reset-bone");
+			const resetPoseBtn = document.querySelector("#reset-pose");
+			const animUrlEl = document.querySelector("#anim-url");
+			const animStatusEl = document.querySelector("#anim-status");
+			const playBtn = document.querySelector("#play-anim");
+			const stopBtn = document.querySelector("#stop-anim");
+			const playlistEl = document.querySelector("#playlist");
+
+			let avatar = null;
+			/** @type {import("../../dist/index.js").VRMFace | null} */
+			let face = null;
+			/** @type {import("../../dist/index.js").VRMBody | null} */
+			let body = null;
+			/** @type {import("three").AnimationMixer | null} */
+			let mixer = null;
+			/** @type {import("three").AnimationAction | null} */
+			let currentAction = null;
+
+			const setStatus = (m) => (statusEl.textContent = m);
+			const setAnimStatus = (m) => (animStatusEl.textContent = m);
+			const setError = (e) =>
+				(errorEl.textContent = e ? String(e?.stack ?? e) : "");
+
+			// ---- Three.js boilerplate ------------------------------------------------
+
+			const scene = new THREE.Scene();
+			scene.background = new THREE.Color(0x111111);
+
+			const camera = new THREE.PerspectiveCamera(
+				35,
+				window.innerWidth / window.innerHeight,
+				0.1,
+				100,
+			);
+			camera.position.set(0, 1.35, 2.4);
+
+			const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+			const controls = new OrbitControls(camera, renderer.domElement);
+			controls.target.set(0, 1.3, 0);
+			controls.enableDamping = true;
+
+			scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+			const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+			dirLight.position.set(1, 2, 3);
+			scene.add(dirLight);
+			scene.add(new THREE.GridHelper(10, 10));
+
+			// An empty object the eyes can track. We move it with the cursor.
+			const gazeTarget = new THREE.Object3D();
+			gazeTarget.position.set(0, 1.3, 2);
+			scene.add(gazeTarget);
+
+			// ---- Face UI wiring --------------------------------------------------------
+
+			// Emotion: one exclusive button per preset the model can show.
+			function buildEmotionButtons() {
+				emotionsEl.innerHTML = "";
+				const names = face.emotion.list();
+
+				for (const name of names.length ? names : face.emotion.presets) {
+					const b = document.createElement("button");
+					b.textContent = name;
+					b.addEventListener("click", () => face.emotion.setExclusive(name));
+					emotionsEl.appendChild(b);
+				}
+			}
+
+			// Viseme: one slider per vowel preset.
+			function buildVisemeSliders() {
+				visemesEl.innerHTML = "";
+
+				for (const preset of face.viseme.presets) {
+					const row = document.createElement("div");
+					row.className = "slider-row";
+
+					const label = document.createElement("label");
+					label.textContent = preset;
+
+					const range = document.createElement("input");
+					range.type = "range";
+					range.min = "0";
+					range.max = "1";
+					range.step = "0.01";
+					range.value = "0";
+
+					const value = document.createElement("span");
+					value.className = "value";
+					value.textContent = "0.00";
+
+					range.addEventListener("input", () => {
+						const w = Number(range.value);
+						face.viseme.set(preset, w);
+						value.textContent = w.toFixed(2);
+					});
+
+					row.append(label, range, value);
+					visemesEl.appendChild(row);
+				}
+			}
+
+			// Eyebrows: exclusive shape buttons + a clear.
+			function buildBrowButtons() {
+				browsEl.innerHTML = "";
+
+				if (!face.brow.available) {
+					browsEl.textContent = "This model has no eyebrow morphs.";
+					return;
+				}
+
+				for (const shape of face.brow.shapes) {
+					const b = document.createElement("button");
+					b.textContent = shape;
+					b.addEventListener("click", () => face.brow.setExclusive(shape));
+					browsEl.appendChild(b);
+				}
+
+				const clear = document.createElement("button");
+				clear.textContent = "clear";
+				clear.className = "ghost";
+				clear.addEventListener("click", () => face.brow.reset());
+				browsEl.appendChild(clear);
+			}
+
+			autoBlinkEl.addEventListener("change", () => {
+				if (autoBlinkEl.checked) {
+					face.eye.autoBlink();
+					blinkEl.disabled = true;
+				} else {
+					face.eye.stopAutoBlink();
+					blinkEl.disabled = false;
+				}
+			});
+
+			blinkEl.addEventListener("input", () => {
+				const w = Number(blinkEl.value);
+				face.eye.blink(w);
+				blinkValueEl.textContent = w.toFixed(2);
+			});
+
+			gazeEl.addEventListener("change", () => {
+				if (gazeEl.checked) face.eye.gaze(gazeTarget);
+				else face.eye.clearGaze();
+			});
+
+			// Move the gaze target with the pointer (mapped to a plane in front of
+			// the avatar). VRMLookAt points the eyes at it every frame.
+			window.addEventListener("pointermove", (event) => {
+				const nx = (event.clientX / window.innerWidth) * 2 - 1;
+				const ny = -(event.clientY / window.innerHeight) * 2 + 1;
+				gazeTarget.position.set(nx * 1.5, 1.3 + ny * 0.6, 2);
+			});
+
+			resetBtn.addEventListener("click", () => {
+				face?.reset();
+				autoBlinkEl.checked = false;
+				gazeEl.checked = false;
+				blinkEl.disabled = false;
+				blinkEl.value = "0";
+				blinkValueEl.textContent = "0.00";
+			});
+
+			// ---- Body posing UI wiring ---------------------------------------------------
+
+			// One <option> per joint this model actually has (not every VRM ships
+			// all of them — see body.listBones()).
+			function buildBoneSelect() {
+				boneSelectEl.innerHTML = "";
+
+				for (const name of body.listBones()) {
+					const option = document.createElement("option");
+					option.value = name;
+					option.textContent = name;
+					boneSelectEl.appendChild(option);
+				}
+
+				refreshBoneSliders();
+			}
+
+			// Reflects the selected joint's CURRENT rotation on the three sliders —
+			// called on selection change and after any reset, so the sliders never
+			// drift from the actual pose.
+			function refreshBoneSliders() {
+				const name = boneSelectEl.value;
+				const euler = name ? body.getEulerDegrees(name) : null;
+				if (!euler) return;
+
+				for (const axis of ["x", "y", "z"]) {
+					const degrees = Math.round(euler[axis]);
+					boneAxisEls[axis].value = String(degrees);
+					boneAxisValueEls[axis].textContent = `${degrees}°`;
+				}
+			}
+
+			boneSelectEl.addEventListener("change", refreshBoneSliders);
+
+			for (const axis of ["x", "y", "z"]) {
+				boneAxisEls[axis].addEventListener("input", () => {
+					const name = boneSelectEl.value;
+					if (!name) return;
+
+					const degrees = Number(boneAxisEls[axis].value);
+					boneAxisValueEls[axis].textContent = `${degrees}°`;
+					// Only this axis is sent — setEulerDegrees merges it against the
+					// joint's current rotation, so the other two axes are untouched.
+					body.setEulerDegrees(name, { [axis]: degrees });
+				});
+			}
+
+			resetBoneBtn.addEventListener("click", () => {
+				const name = boneSelectEl.value;
+				if (!name) return;
+				body.resetBoneRotation(name);
+				refreshBoneSliders();
+			});
+
+			resetPoseBtn.addEventListener("click", () => {
+				body.resetPose();
+				refreshBoneSliders();
+			});
+
+			// ---- Mixamo animation wiring ------------------------------------------------
+
+			// Plays `url`, crossfading from whatever was already playing. This is
+			// plain three.js `AnimationMixer`/`AnimationAction` — the package hands
+			// back a retargeted clip and stops there, so nothing here is special.
+			async function playAnimation(url) {
+				if (!avatar) return;
+
+				try {
+					setError("");
+					setAnimStatus(`Loading ${url}...`);
+					playBtn.disabled = true;
+
+					const clip = await loadMixamoAnimation(encodeURI(url), avatar.vrm);
+					const nextAction = mixer.clipAction(clip);
+					nextAction.reset().play();
+
+					if (currentAction && currentAction !== nextAction) {
+						currentAction.crossFadeTo(nextAction, 0.3, false);
+					}
+
+					currentAction = nextAction;
+					setAnimStatus(`Playing ${url}`);
+				} catch (error) {
+					console.error(error);
+					setAnimStatus(`Failed to load ${url}.`);
+					setError(error);
+				} finally {
+					playBtn.disabled = false;
+				}
+			}
+
+			playBtn.addEventListener("click", () => playAnimation(animUrlEl.value));
+
+			stopBtn.addEventListener("click", () => {
+				currentAction?.stop();
+				currentAction = null;
+				setAnimStatus("Stopped.");
+			});
+
+			for (const url of ANIMATION_PRESETS) {
+				const b = document.createElement("button");
+				b.textContent = url.split("/").pop();
+				b.className = "ghost";
+				b.addEventListener("click", () => {
+					animUrlEl.value = url;
+					playAnimation(url);
+				});
+				playlistEl.appendChild(b);
+			}
+
+			// ---- Load ------------------------------------------------------------------
+
+			async function loadAvatar() {
+				try {
+					setError("");
+					setStatus("Loading VRM...");
+
+					avatar = await loadVRM(MODEL_URL, {
+						scene,
+						onProgress(p) {
+							const pct = Math.round(p.progress * 100);
+							setStatus(
+								p.total > 0
+									? `Loading VRM... ${pct}%`
+									: `Loading VRM... ${p.loaded} bytes`,
+							);
+						},
+					});
+
+					avatar.scene.rotation.y = Math.PI; // face the camera
+
+					face = createVRMFace(avatar.vrm);
+					body = createVRMBody(avatar.vrm);
+					mixer = new THREE.AnimationMixer(avatar.vrm.scene);
+
+					// The seam: both run BEFORE vrm.update, which then flushes
+					// expression weights, the posed/retargeted bone transforms,
+					// spring bones, and look-at to the mesh, all in one call.
+					// Face control owns expression weights; body posing and the
+					// mixer both own bone poses (direct writes vs. animation) but
+					// never run at the same time in this demo — they never touch
+					// the same data either way, so no ordering beyond "before
+					// vrm.update" is needed between any of them.
+					avatar.registerUpdate((delta) => {
+						face.update(delta);
+						mixer.update(delta);
+					});
+
+					buildEmotionButtons();
+					buildVisemeSliders();
+					buildBrowButtons();
+					buildBoneSelect();
+
+					setStatus(
+						face.available
+							? "Loaded. Try the face controls, then play a Mixamo animation."
+							: "Loaded (no standard expressions — using raw morph fallback).",
+					);
+				} catch (error) {
+					console.error(error);
+					setStatus("Failed to load VRM.");
+					setError(error);
+				}
+			}
+
+			// ---- Render loop -------------------------------------------------------------
+
+			const clock = new THREE.Clock();
+
+			function animate() {
+				requestAnimationFrame(animate);
+				const delta = clock.getDelta();
+
+				controls.update();
+				// Runs registered updaters (face.update, mixer.update) then
+				// vrm.update, which flushes expressions, the retargeted pose,
+				// spring bones, and look-at — all in one call.
+				avatar?.update(delta);
+
+				renderer.render(scene, camera);
+			}
+
+			window.addEventListener("resize", () => {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+			});
+
+			loadAvatar();
+			animate();
+		</script>
+	</body>
+</html>

@@ -1,63 +1,81 @@
 {
-  "name": "@fano/vrm-controller",
-  "version": "0.0.1",
-  "description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm.",
-  "author": "Ayush Pradhan",
-  "license": "SEE LICENSE IN LICENSE",
-  "homepage": "https://github.com/Fano1/fano-vrm-controller",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Fano1/fano-vrm-controller.git"
-  },
-  "bugs": {
-    "url": "https://github.com/Fano1/fano-vrm-controller/issues"
-  },
-  "keywords": [
-    "vrm",
-    "three-vrm",
-    "threejs",
-    "three",
-    "avatar",
-    "vtuber",
-    "fano"
-  ],
-  "type": "module",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "NOTICE"
-  ],
-  "sideEffects": false,
-  "scripts": {
-    "build": "tsup index.ts --format esm,cjs --dts",
-    "dev": "tsup index.ts --format esm,cjs --dts --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "prepack": "bun run build"
-  },
-  "peerDependencies": {
-    "@pixiv/three-vrm": "^3.5.4",
-    "three": "^0.184.0"
-  },
-  "devDependencies": {
-    "@pixiv/three-vrm": "^3.5.4",
-    "@types/bun": "latest",
-    "@types/node": "^26.0.0",
-    "three": "^0.184.0",
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
-  },
-  "private": true
+	"name": "@fanoalone/vrm-controller",
+	"version": "0.0.1",
+	"description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm.",
+	"author": "Ayush Pradhan",
+	"license": "SEE LICENSE IN LICENSE",
+	"homepage": "https://github.com/Fano1/fano-vrm-controller",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Fano1/fano-vrm-controller.git"
+	},
+	"bugs": {
+		"url": "https://github.com/Fano1/fano-vrm-controller/issues"
+	},
+	"keywords": [
+		"vrm",
+		"three-vrm",
+		"threejs",
+		"three",
+		"avatar",
+		"vtuber",
+		"fano"
+	],
+	"type": "module",
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		},
+		"./r3f": {
+			"types": "./dist/r3f.d.ts",
+			"import": "./dist/r3f.js",
+			"require": "./dist/r3f.cjs"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE",
+		"NOTICE"
+	],
+	"sideEffects": false,
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"prepack": "bun run build"
+	},
+	"peerDependencies": {
+		"@pixiv/three-vrm": "^3.5.4",
+		"@react-three/fiber": ">=8",
+		"react": ">=18",
+		"three": "^0.184.0"
+	},
+	"peerDependenciesMeta": {
+		"@react-three/fiber": {
+			"optional": true
+		},
+		"react": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@pixiv/three-vrm": "^3.5.4",
+		"@react-three/fiber": "^9.0.0",
+		"@types/bun": "latest",
+		"@types/node": "^26.0.0",
+		"@types/react": "^19.0.0",
+		"react": "^19.0.0",
+		"three": "^0.184.0",
+		"tsup": "^8.5.1",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.9"
+	},
+	"private": false
 }

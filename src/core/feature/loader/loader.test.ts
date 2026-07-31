@@ -143,6 +143,46 @@ describe("loadVRM", () => {
     expect(mocks.fakeVRM.update).toHaveBeenCalledWith(0.016);
   });
 
+  it("runs registered updaters (in order) BEFORE vrm.update each frame", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const order: string[] = [];
+
+    avatar.registerUpdate(() => order.push("a"));
+    avatar.registerUpdate(() => order.push("b"));
+    mocks.fakeVRM.update.mockImplementation(() => order.push("vrm"));
+
+    avatar.update(0.016);
+
+    // This is the animation-engine seam: a future Mixamo mixer registered here
+    // always runs before vrm.update so spring-bones / look-at see the final pose.
+    expect(order).toEqual(["a", "b", "vrm"]);
+    expect(mocks.fakeVRM.update).toHaveBeenCalledWith(0.016);
+  });
+
+  it("unregisters an updater via its returned disposer", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const updater = vi.fn();
+
+    const stop = avatar.registerUpdate(updater);
+    avatar.update(0.016);
+    expect(updater).toHaveBeenCalledTimes(1);
+
+    stop();
+    avatar.update(0.016);
+    expect(updater).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears updaters on dispose", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const updater = vi.fn();
+
+    avatar.registerUpdate(updater);
+    avatar.dispose();
+    avatar.update(0.016);
+
+    expect(updater).not.toHaveBeenCalled();
+  });
+
   it("disposes the VRM scene, geometry, and material", async () => {
     const avatar = await loadVRM("/avatar.vrm");
 
