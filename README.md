@@ -2,13 +2,14 @@
 
 A thin, tree-shakeable wrapper around [`@pixiv/three-vrm`](https://github.com/pixiv/three-vrm)
 that simplifies loading and controlling VRM avatars in Three.js: one call to load
-a model, a facade for facial expression + lip-sync, and a Mixamo animation
-retargeter — all built on top of the standard VRM humanoid rig, so it works
+a model, a facade for facial expression + lip-sync, a Mixamo animation
+retargeter, and a procedural animation system that generates body motion at
+runtime — all built on top of the standard VRM humanoid rig, so it works
 across VRoid, VRChat, and generic models.
 
 `three` and `@pixiv/three-vrm` are **peer dependencies** — you bring your own
-versions. React / `@react-three/fiber` are optional peer deps, only needed if
-you use the `/r3f` entry point.
+versions. React / `@react-three/fiber` and `solid-js` are optional peer deps,
+only needed if you use the `/r3f` or `/solid` entry points.
 
 ## Install
 
@@ -33,14 +34,34 @@ animate();
 ```
 
 That's the whole core loop. Everything below — face control, lip-sync, Mixamo
-animation — plugs into `avatar` without touching this loop again.
+animation, procedural animation — plugs into `avatar` without touching this
+loop again.
 
-## Two entry points
+## What's in the box
+
+| | What it does | Section |
+| --- | --- | --- |
+| `loadVRM` | Load a model, and the one per-frame seam everything else hooks into | [1](#1-the-loader--loadvrm) |
+| `createVRMFace` | Expressions, blinking, eye gaze, mouth | [2](#2-face-control--createvrmface) |
+| `face.viseme` / `speak` | Vowel-based lip-sync | [3](#3-vowels--visemes-lip-sync) |
+| `loadMixamoAnimation` | Retarget a Mixamo `.fbx` onto any VRM → `THREE.AnimationClip` | [4](#4-mixamo-animation-retargeting) |
+| `createVRMBody` | Read/write individual joints by `VRMHumanBoneName` | [5](#5-body-posing--createvrmbody) |
+| `createProceduralAnimator` | Generate motion at runtime — idle, look-at, gestures; bake it to a clip | [6](#6-procedural-animation--motion-without-a-fbx) |
+| `createVRM` / `createFrameLoop` | Solid bindings — reactive loading, disposal, and the frame loop | [7](#7-solid) |
+
+Every piece is optional and independently importable — pull in the loader alone
+if that's all you need.
+
+## Three entry points
 
 | Import path | Consumes | Use it for |
 | --- | --- | --- |
-| `@fano/vrm-controller` | three + @pixiv/three-vrm | Loading, face control, Mixamo animation |
+| `@fano/vrm-controller` | three + @pixiv/three-vrm | Loading, face control, Mixamo animation, procedural animation |
 | `@fano/vrm-controller/r3f` | + react + @react-three/fiber | `<Vrm url="..." />` and `useVRM()` in React Three Fiber |
+| `@fano/vrm-controller/solid` | + solid-js | `createVRM()` and a frame loop for Solid — [section 7](#7-solid) |
+
+The framework entries add lifecycle, not features: everything in the table
+above is framework-agnostic and comes from the root entry either way.
 
 ---
 
@@ -284,6 +305,99 @@ shoulders, toes, eyes, and jaw are all optional), so build UI from
 per-model lookup — because the normalized rig rests at identity by
 construction, the same fact that makes Mixamo retargeting work.
 
+---
+
+## 6. Procedural animation — motion without a `.fbx`
+
+Everything above either poses the avatar once or replays motion somebody else
+authored. This generates motion at runtime, from composable signal functions:
+
+```ts
+import {
+  loadVRM,
+  createIdleAnimator,
+  createLookAtAnimator,
+  createGestureAnimator,
+  createProceduralAnimator,
+} from "@fano/vrm-controller";
+
+const avatar = await loadVRM("/avatar.vrm", { scene });
+
+const gestures = createGestureAnimator({ wave: WAVE_KEYFRAMES });
+const idle = createIdleAnimator();               // breathing, sway, micro-wander
+const look = createLookAtAnimator({ target: camera }); // head/neck/chest turn
+
+const anim = createProceduralAnimator(avatar.vrm, [gestures, idle, look]);
+avatar.registerUpdate((delta) => anim.update(delta)); // the same seam as always
+
+gestures.play("wave");
+```
+
+**One rig, one owner.** A Mixamo `AnimationMixer` and a procedural animator
+both write `vrm.humanoid`'s normalized rig, and the procedural animator writes
+every bone it owns on *every* frame — so whichever runs later in
+`registerUpdate` order overwrites the other. Use pre-authored clips **or**
+procedural animation, not both at once. Switching at runtime is fine: call
+`anim.reset()` first, which returns every bone the stack owns to rest before
+the mixer takes over. (Face control is unaffected either way — expression
+weights and bone poses never overlap.)
+
+Four layers, each usable on its own:
+
+```
+signals      pure fns of time      sine / noise / spring / envelope
+   ↓
+channels     signal → bone+axis    channel("spine", "x", sine({ hz: .25, amp: 3 }))
+   ↓
+animators    { update(ctx) }       createAnimator(fn) — the imperative escape hatch
+   ↓
+behaviors    ready-made            idle / look-at / gesture
+```
+
+| Behavior | What it does |
+| --- | --- |
+| `createIdleAnimator` | Breathing, weight-shift sway, seeded micro-wander — at unrelated rates so the loop never becomes visible. Optional hip bob (off by default: it lifts the feet). |
+| `createLookAtAnimator` | Bone-level head/neck/chest turn toward a target, clamped and spring-smoothed. Composes with the eye-only `face.eye.gaze()` — eyes lead, head follows. |
+| `createGestureAnimator` | Named keyframe timelines (`play`/`stop`/`loop`/crossfade). A non-looping gesture releases itself so the idle takes back over. |
+
+Animators write to a **`PoseSink`**, never to a `VRMBody` directly. That one
+indirection is what lets the *same* animator drive the live model or be sampled
+offline — which is what `bakeAnimator` does:
+
+```ts
+const clip = bakeAnimator(avatar.vrm, createIdleAnimator(), {
+  duration: 8,
+  fps: 30,
+  loop: true, // last sample == first, so LoopRepeat has no seam
+});
+
+mixer.clipAction(clip).play(); // a plain THREE.AnimationClip, same as Mixamo's
+```
+
+Baking is **reproducible** — nothing in the signal library calls
+`Math.random()` (`noise` is seeded instead), the animator is reset before
+sampling, and the timestep is fixed. It also never touches the live model, so
+an avatar on screen doesn't twitch while a clip is generated.
+
+Composition rule: within a layer, channels on the same bone sum their degrees
+and convert to a quaternion once; across layers, per-bone quaternions multiply
+in stack order. Every frame writes an absolute rotation derived from rest, so
+there's no drift and no gimbal-lock round-trip — and a bone nothing drives any
+more relaxes to rest instead of sticking.
+
+**One authoring convention, both spec versions.** A VRM 1.0 rig faces `+Z` and a
+VRM 0.x rig faces `-Z`, so a pose authored for one is mirrored on the other —
+an arm raise becomes an arm drop. Everything here is authored in the VRM 1.0
+convention (`+Z` forward, `+X` model-left) and converted at the write boundary,
+by the same rule `retargetMixamoToVRM` applies to Mixamo clips. So one gesture
+library works on both. Reach for `createRigFrame(vrm)` if you're computing
+directions yourself in a raw `createAnimator` callback.
+
+See [`docs/procedural-example/`](./docs/procedural-example/procedural-example.md)
+for the full API reference and a live demo that toggles each idle component,
+tracks the camera, fires gestures, and flips between the live animator and a
+baked clip of the same motion.
+
 ## Putting it all together
 
 `docs/full-example/` combines all of the above — one VRM, driven by face
@@ -316,6 +430,10 @@ without any coordination beyond "run before `vrm.update`." See
 [`docs/full-example/full-example.md`](./docs/full-example/full-example.md)
 for the live demo.
 
+The one pairing that *doesn't* combine is Mixamo playback and procedural
+animation — both own the normalized bone rig, so pick one per model (see
+section 6). Everything else layers freely.
+
 ## React Three Fiber
 
 ```tsx
@@ -330,6 +448,69 @@ import { Vrm } from "@fano/vrm-controller/r3f";
 disposes on unmount/url change. `useVRM(url)` is the hook it's built on, if
 you want the loading state without the component.
 
+---
+
+## 7. Solid
+
+```tsx
+import { createVRM, createFrameLoop } from "@fano/vrm-controller/solid";
+
+const vrm = createVRM("/avatar.vrm", { scene });
+
+createFrameLoop((delta) => {
+  vrm.avatar()?.update(delta); // the same one-call-per-frame rule as everywhere
+  renderer.render(scene, camera);
+});
+```
+
+Unlike the R3F entry, this one depends on **nothing but `solid-js`** — there's
+no mature Solid renderer for three.js to lean on (`solid-three` still calls
+itself early development), so you keep your own renderer, scene, and camera,
+and these primitives manage what goes into that scene and when it goes away.
+The `/solid` entry ships no JSX, so no `babel-preset-solid` pass runs over
+`dist/`.
+
+| Primitive | What it does |
+| --- | --- |
+| `createVRM(url, options?)` | Reactive load. Tracks a url signal, attaches to a `scene`, disposes on url change / unmount — including loads that land *after* the url changed again. Exposes `avatar` / `loading` / `progress` / `error`, plus `resource` for `<Suspense>`. |
+| `createFrameLoop(cb, options?)` | The rAF loop Solid doesn't come with. Seconds, not ms; clamps the delta so a backgrounded tab can't detonate spring bones; pausable; cancels on cleanup. |
+| `createVRMUpdate(avatar, fn)` | The reactive form of `registerUpdate` — re-registers when the avatar changes identity, so a model swap can't leave a driver bound to a disposed rig. |
+| `Vrm` | Declarative mount: `<Show>` / `<For>` become the lifecycle. Renders nothing to the DOM. |
+
+Everything in sections 1–6 works from Solid without a Solid-specific wrapper,
+because none of it is framework-specific. Three ideas cover all of it:
+
+```ts
+// 1. A memo keyed on the avatar builds the controller — it rebuilds on a swap.
+const face = createMemo(() => {
+  const avatar = vrm.avatar();
+  return avatar ? createVRMFace(avatar.vrm) : null;
+});
+
+// 2. createVRMUpdate registers whatever needs a frame.
+createVRMUpdate(vrm.avatar, (delta) => face()?.update(delta));
+
+// 3. State lives in signals; the model is a projection of it.
+createEffect(() => face()?.emotion.setExclusive(mood()));
+```
+
+The third is the one that pays for itself: because the effect depends on both
+the controller *and* the choice, **swapping models re-applies every control**
+— the expression, the gesture that was playing, the joints you posed — with no
+resynchronisation code. Apply a control in a click handler instead and it
+silently vanishes on the next load.
+
+The exception is the rig itself. A Mixamo `AnimationMixer`, a procedural
+animator, and manual `createVRMBody` posing all write the normalized bone rig
+(section 6's **one rig, one owner** rule), so that's a mode signal with a
+handover, not three independent toggles — face control is unaffected either
+way and runs in every mode.
+
+See [`docs/solid-example/`](./docs/solid-example/solid-example.md) for the full
+API reference, SSR notes, a recipe per feature — expressions, brows, visemes,
+gestures, retargeting, baking — and a live demo that runs all of it at once and
+lets you swap the model underneath it.
+
 ## Development
 
 ```bash
@@ -340,9 +521,17 @@ bun run test            # vitest run
 bun run test:watch      # vitest watch
 ```
 
-Tests mock `three` / `@pixiv/three-vrm` entirely and run in Node — there's no
-headless-GL setup, so the live `docs/*-example/*.html` demos are how you
-actually see any of this rendered (`bunx serve .`, then open the demo you want).
+Tests run in Node with no headless-GL setup. They fake `vrm` / `vrm.humanoid`
+(a plain object cast to `VRM`) but use **real** `three` instances for the
+math — quaternions, Euler conversions, keyframe tracks — so the rotation and
+retargeting logic is checked against three.js's own algebra rather than a
+reimplementation of it. The Solid tests stub `loadVRM`, `requestAnimationFrame`
+and `window`/`document`, but run **real** Solid reactivity — which is why
+`vitest.config.ts` pins `resolve.conditions` to `["browser", "development"]`:
+under Node's own resolution `solid-js` serves its SSR build, where every
+reactive primitive is an inert stub and the tests would silently pass nothing. Nothing renders, so the live `docs/*-example/*.html`
+demos are how you actually see any of this on screen (`bunx serve .`, then open
+the demo you want).
 
 ## License
 

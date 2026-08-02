@@ -11,7 +11,11 @@
 export * from "./body-type";
 
 // Euler <-> quaternion helpers (public — handy for building your own UI)
-export { quaternionToEulerDegrees, mergeEulerDegrees } from "./body-utils";
+export {
+  quaternionToEulerDegrees,
+  eulerDegreesToQuaternion,
+  mergeEulerDegrees,
+} from "./body-utils";
 
 // The controller
 export * from "./vrm-body";

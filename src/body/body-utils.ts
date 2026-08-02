@@ -27,6 +27,28 @@ export function quaternionToEulerDegrees(
 }
 
 /**
+ * Compose degrees around each axis back into a quaternion — the inverse of
+ * {@link quaternionToEulerDegrees}.
+ *
+ * Writes into `target` when given, so per-frame callers (the procedural
+ * animation channels) can avoid allocating a quaternion every bone every frame.
+ */
+export function eulerDegreesToQuaternion(
+  euler: EulerDegrees,
+  order: EulerOrder = DEFAULT_ORDER,
+  target: THREE.Quaternion = new THREE.Quaternion(),
+): THREE.Quaternion {
+  return target.setFromEuler(
+    new THREE.Euler(
+      THREE.MathUtils.degToRad(euler.x),
+      THREE.MathUtils.degToRad(euler.y),
+      THREE.MathUtils.degToRad(euler.z),
+      order,
+    ),
+  );
+}
+
+/**
  * Build a quaternion from degrees around each axis, merging any axis left out
  * of `partial` from `current`'s existing rotation — so a UI with three
  * independent X/Y/Z sliders can update one axis at a time without clobbering
@@ -38,6 +60,10 @@ export function quaternionToEulerDegrees(
  * outer two axes, so only their sum/difference survives, not each
  * individually. Avoid driving the middle axis all the way to +/-90° if
  * independent control of the other two matters.
+ *
+ * Note that the procedural animation module never round-trips through this —
+ * it composes its euler degrees from rest each frame and converts once with
+ * {@link eulerDegreesToQuaternion}, so it is not exposed to this singularity.
  */
 export function mergeEulerDegrees(
   current: THREE.Quaternion,
@@ -46,12 +72,12 @@ export function mergeEulerDegrees(
 ): THREE.Quaternion {
   const base = quaternionToEulerDegrees(current, order);
 
-  const euler = new THREE.Euler(
-    THREE.MathUtils.degToRad(partial.x ?? base.x),
-    THREE.MathUtils.degToRad(partial.y ?? base.y),
-    THREE.MathUtils.degToRad(partial.z ?? base.z),
+  return eulerDegreesToQuaternion(
+    {
+      x: partial.x ?? base.x,
+      y: partial.y ?? base.y,
+      z: partial.z ?? base.z,
+    },
     order,
   );
-
-  return new THREE.Quaternion().setFromEuler(euler);
 }

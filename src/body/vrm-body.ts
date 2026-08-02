@@ -39,7 +39,12 @@ import type { EulerDegrees, EulerOrder, PartialEulerDegrees } from "./body-type"
  * ```
  */
 export class VRMBody {
-  constructor(private readonly vrm: VRM) {}
+  /**
+   * The model this body drives. Public so callers can read the model's own
+   * metadata — the procedural module uses it to detect the VRM 0.x vs 1.0
+   * humanoid convention (see `createRigFrame`).
+   */
+  constructor(public readonly vrm: VRM) {}
 
   /** Whether this model exposes `name` at all. */
   hasBone(name: VRMHumanBoneName): boolean {

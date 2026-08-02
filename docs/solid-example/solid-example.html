@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fano VRM Controller — Solid Example</title>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #111;
+        font-family:
+          Inter,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      #canvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+
+      #panel {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 10;
+        width: 350px;
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.72);
+        color: white;
+        backdrop-filter: blur(12px);
+      }
+
+      #panel h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+
+      #status {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      #error {
+        margin: 10px 0 0;
+        color: #ff6b6b;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+
+      .section {
+        margin-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        padding-top: 12px;
+      }
+
+      .section > h2 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.55);
+      }
+
+      .subsection {
+        margin-top: 10px;
+        padding-left: 10px;
+        border-left: 2px solid rgba(125, 211, 252, 0.3);
+      }
+
+      .hint {
+        margin: 0 0 8px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      button {
+        padding: 6px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.12);
+        color: white;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      button.active {
+        border-color: #7dd3fc;
+        background: rgba(125, 211, 252, 0.22);
+      }
+
+      label.toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 13px;
+      }
+
+      select {
+        width: 100%;
+        padding: 5px 6px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        background: rgba(30, 30, 30, 0.95);
+        color: white;
+        font-size: 12px;
+      }
+
+      .slider {
+        margin-top: 8px;
+      }
+
+      .slider > div {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      #progress-bar {
+        height: 4px;
+        margin-top: 8px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+
+      #progress-fill {
+        height: 100%;
+        width: 0%;
+        background: #7dd3fc;
+        transition: width 0.1s linear;
+      }
+
+      code {
+        font-size: 11px;
+        color: #7dd3fc;
+      }
+
+      .readout {
+        margin: 6px 0 0;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+
+    <!--
+      Import map points bare specifiers at the repo's node_modules, and the
+      built package at ../../dist. Serve the repo root (`bunx serve .`) and
+      open /docs/solid-example/solid-example.html.
+
+      solid-js is mapped to its CLIENT build (dist/solid.js). Node's own
+      resolution would pick the SSR build, where the reactive primitives are
+      inert stubs — the same trap vitest.config.ts works around.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../../node_modules/three/build/three.module.js",
+          "three/addons/": "../../node_modules/three/examples/jsm/",
+          "@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
+          "solid-js": "../../node_modules/solid-js/dist/solid.js",
+          "solid-js/web": "../../node_modules/solid-js/web/dist/web.js"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <canvas id="canvas"></canvas>
+
+    <div id="panel">
+      <h1>Solid Integration</h1>
+      <p id="status">Waiting...</p>
+
+      <div id="progress-bar"><div id="progress-fill"></div></div>
+      <p id="error"></p>
+
+      <!-- 1. Loading ------------------------------------------------->
+      <div class="section">
+        <h2>Model source</h2>
+        <p class="hint">
+          <code>createVRM(url)</code> tracks the url signal: switching reloads,
+          and the previous avatar is disposed for you. Every control below is
+          re-applied to the new model automatically.
+        </p>
+        <div class="row">
+          <button id="btn-avatar">avatar.vrm</button>
+          <button id="btn-file">Load .vrm file…</button>
+          <button id="btn-clear">Clear</button>
+        </div>
+        <input id="file-input" type="file" accept=".vrm" hidden />
+        <label class="toggle" style="margin-top: 10px">
+          <input id="keep-previous" type="checkbox" />
+          keepPrevious (hold the old model while loading)
+        </label>
+      </div>
+
+      <!-- 2. Frame loop ---------------------------------------------->
+      <div class="section">
+        <h2>Frame loop</h2>
+        <p class="hint">
+          <code>createFrameLoop</code> owns rAF: it advances every avatar, then
+          renders.
+        </p>
+        <div class="row">
+          <button id="btn-loop">Pause</button>
+        </div>
+        <p class="readout" id="loop-readout">—</p>
+      </div>
+
+      <!-- 3. Body driver --------------------------------------------->
+      <div class="section">
+        <h2>Body driver</h2>
+        <p class="hint">
+          One rig, one owner — a Mixamo mixer and a procedural animator both
+          write the normalized bone rig, so this is a mode switch, not four
+          checkboxes. Switching releases the previous owner's bones.
+        </p>
+        <div class="row" id="mode-row">
+          <button data-mode="procedural">Procedural</button>
+          <button data-mode="clip">Mixamo clip</button>
+          <button data-mode="manual">Manual pose</button>
+          <button data-mode="off">Off</button>
+        </div>
+
+        <!-- 3a. Procedural -->
+        <div class="subsection" id="pane-procedural">
+          <label class="toggle">
+            <input id="toggle-idle" type="checkbox" checked />
+            Idle — breathing, sway, micro-wander
+          </label>
+          <label class="toggle">
+            <input id="toggle-lookat" type="checkbox" checked />
+            Look-at — head / neck follow the camera
+          </label>
+          <p class="hint" style="margin-top: 8px">
+            Gestures — a non-looping one releases itself and the idle takes back
+            over.
+          </p>
+          <div class="row" id="gesture-row"></div>
+          <div class="row" style="margin-top: 6px">
+            <button id="btn-gesture-stop">Stop gesture</button>
+            <button id="btn-bake">Bake idle → clip</button>
+          </div>
+          <p class="readout" id="gesture-readout">No gesture playing.</p>
+        </div>
+
+        <!-- 3b. Mixamo -->
+        <div class="subsection" id="pane-clip" hidden>
+          <p class="hint">
+            Retargeted on demand and keyed on the avatar, so a clip can't
+            outlive the rig it was retargeted onto. Swapping crossfades.
+          </p>
+          <div class="row" id="clip-row"></div>
+          <p class="readout" id="clip-readout">No clip loaded.</p>
+        </div>
+
+        <!-- 3c. Manual posing -->
+        <div class="subsection" id="pane-manual" hidden>
+          <p class="hint">
+            <code>createVRMBody</code> — degrees per axis, merged against the
+            joint's current rotation. Only the joints this model actually has
+            are listed.
+          </p>
+          <select id="bone-select"></select>
+          <div class="slider">
+            <div><span>X</span><span id="bone-x-value">0°</span></div>
+            <input id="bone-x" type="range" min="-90" max="90" value="0" />
+          </div>
+          <div class="slider">
+            <div><span>Y</span><span id="bone-y-value">0°</span></div>
+            <input id="bone-y" type="range" min="-90" max="90" value="0" />
+          </div>
+          <div class="slider">
+            <div><span>Z</span><span id="bone-z-value">0°</span></div>
+            <input id="bone-z" type="range" min="-90" max="90" value="0" />
+          </div>
+          <div class="row" style="margin-top: 8px">
+            <button id="btn-pose-reset">Reset pose</button>
+            <button id="btn-pose-snapshot">Snapshot</button>
+            <button id="btn-pose-restore">Restore</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Face ---------------------------------------------------->
+      <div class="section">
+        <h2>Face — emotion</h2>
+        <p class="hint">
+          <code>face.emotion.setExclusive()</code>. Click the active one again
+          to clear.
+        </p>
+        <div class="row" id="emotion-row"></div>
+      </div>
+
+      <div class="section">
+        <h2>Face — brows</h2>
+        <p class="hint">
+          No VRM preset exists for eyebrows, so these are raw morphs — the list
+          is whatever this model ships.
+        </p>
+        <div class="row" id="brow-row"></div>
+      </div>
+
+      <div class="section">
+        <h2>Face — eyes</h2>
+        <label class="toggle">
+          <input id="toggle-blink" type="checkbox" checked />
+          Auto-blink (the one thing <code>face.update</code> advances)
+        </label>
+        <label class="toggle">
+          <input id="toggle-gaze" type="checkbox" checked />
+          Gaze — eyes track the camera via <code>VRMLookAt</code>
+        </label>
+        <div class="slider">
+          <div>
+            <span>Manual eyelid</span><span id="blink-value">0.00</span>
+          </div>
+          <input
+            id="blink-weight"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0"
+          />
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Face — visemes (lip-sync)</h2>
+        <p class="hint">
+          Five vowels, fed straight into <code>viseme.setAll()</code> — the
+          shape an audio analyser or TTS stream would drive.
+        </p>
+        <label class="toggle">
+          <input id="toggle-speak" type="checkbox" />
+          Simulate speech (drives the vowels from the frame loop)
+        </label>
+        <div id="viseme-sliders"></div>
+        <div class="row" style="margin-top: 8px">
+          <button id="btn-face-reset">Reset face</button>
+        </div>
+      </div>
+
+      <!-- 5. Declarative mount --------------------------------------->
+      <div class="section">
+        <h2>Declarative mount</h2>
+        <p class="hint">
+          A second avatar mounted through the <code>Vrm</code> component inside
+          its own root — what <code>&lt;Show&gt;</code> does in a real app.
+          Unmounting disposes it.
+        </p>
+        <div class="row">
+          <button id="btn-mount">Mount second avatar</button>
+        </div>
+        <p class="readout" id="mount-readout">Not mounted</p>
+      </div>
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import {
+        createRoot,
+        createSignal,
+        createMemo,
+        createEffect,
+        createResource,
+        untrack,
+        on,
+      } from "solid-js";
+
+      // IMPORTANT: run `bun run build` first — this imports the built package.
+      // Everything here except the four Solid primitives is framework-agnostic
+      // and comes from the ROOT entry: Solid supplies lifecycle, not features.
+      import {
+        createVRMFace,
+        createVRMBody,
+        loadMixamoAnimation,
+        createIdleAnimator,
+        createLookAtAnimator,
+        createGestureAnimator,
+        createProceduralAnimator,
+        bakeAnimator,
+        createBrowPatterns,
+        VISEME_PRESETS,
+      } from "../../dist/index.js";
+      import {
+        createVRM,
+        createVRMUpdate,
+        createFrameLoop,
+        Vrm,
+      } from "../../dist/solid.js";
+
+      const MODEL_URL = "../../avatar.vrm";
+
+      // Mixamo downloads keep their original names (spaces and all) — the
+      // urls are encodeURI'd at fetch time rather than renaming the files.
+      const CLIP_PRESETS = [
+        { label: "Rumba", value: "../../animation/RumbaDancing.fbx" },
+        { label: "Snake", value: "../../animation/Snake Hip Hop Dance.fbx" },
+        { label: "Booty", value: "../../animation/Booty Hip Hop Dance.fbx" },
+        { label: "Macarena", value: "../../animation/Macarena Dance.fbx" },
+      ];
+
+      // Keyframe timelines, in degrees per bone. Bones a model lacks are
+      // written and harmlessly ignored, so one library works across rigs.
+      const GESTURES = {
+        wave: [
+          { time: 0, pose: {} },
+          {
+            time: 0.35,
+            pose: { rightUpperArm: { z: -75 }, rightLowerArm: { z: -35 } },
+            ease: "easeOutBack",
+          },
+          {
+            time: 0.65,
+            pose: {
+              rightUpperArm: { z: -75 },
+              rightLowerArm: { z: -60 },
+              rightHand: { z: -20 },
+            },
+          },
+          {
+            time: 0.95,
+            pose: {
+              rightUpperArm: { z: -75 },
+              rightLowerArm: { z: -30 },
+              rightHand: { z: 20 },
+            },
+          },
+          {
+            time: 1.25,
+            pose: {
+              rightUpperArm: { z: -75 },
+              rightLowerArm: { z: -60 },
+              rightHand: { z: -20 },
+            },
+          },
+          { time: 1.8, pose: {} },
+        ],
+        nod: [
+          { time: 0, pose: {} },
+          {
+            time: 0.25,
+            pose: { head: { x: 14 }, neck: { x: 6 } },
+            ease: "easeOutQuad",
+          },
+          { time: 0.5, pose: { head: { x: -6 }, neck: { x: -2 } } },
+          { time: 0.78, pose: { head: { x: 10 }, neck: { x: 4 } } },
+          { time: 1.1, pose: {} },
+        ],
+        shrug: [
+          { time: 0, pose: {} },
+          {
+            time: 0.4,
+            pose: {
+              leftShoulder: { z: 14 },
+              rightShoulder: { z: -14 },
+              leftUpperArm: { z: 20 },
+              rightUpperArm: { z: -20 },
+              head: { x: 5 },
+            },
+            ease: "easeOutBack",
+          },
+          {
+            time: 1.2,
+            pose: {
+              leftShoulder: { z: 14 },
+              rightShoulder: { z: -14 },
+              leftUpperArm: { z: 20 },
+              rightUpperArm: { z: -20 },
+            },
+          },
+          { time: 1.7, pose: {} },
+        ],
+        // A looping gesture never releases itself — "Stop gesture" ends it.
+        sway: {
+          loop: true,
+          keyframes: [
+            { time: 0, pose: { spine: { z: 0 }, head: { z: 0 } } },
+            { time: 1.2, pose: { spine: { z: 6 }, head: { z: -4 } } },
+            { time: 2.4, pose: { spine: { z: 0 }, head: { z: 0 } } },
+            { time: 3.6, pose: { spine: { z: -6 }, head: { z: 4 } } },
+            { time: 4.8, pose: { spine: { z: 0 }, head: { z: 0 } } },
+          ],
+        },
+      };
+
+      // --- Plain three.js scene, exactly as in the other examples --------
+      // Solid doesn't render three.js here; it only owns the lifecycle of
+      // what goes *into* this scene.
+
+      const canvas = document.querySelector("#canvas");
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111111);
+
+      const camera = new THREE.PerspectiveCamera(
+        30,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100,
+      );
+      camera.position.set(0, 1.3, 2.6);
+
+      const controls = new OrbitControls(camera, canvas);
+      controls.target.set(0, 1.1, 0);
+      controls.update();
+
+      scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+      const key = new THREE.DirectionalLight(0xffffff, 1.6);
+      key.position.set(1, 2, 2);
+      scene.add(key);
+      scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // --- DOM helpers ---------------------------------------------------
+      // Stand-ins for JSX. `<For each={list()}>` becomes `renderChips`, and
+      // every `createEffect` further down is standing in for one expression
+      // in markup. The reactive core — the memos, the effects' dependencies —
+      // is identical either way.
+
+      const el = (id) => document.querySelector(id);
+
+      function renderChips(container, items, onClick) {
+        container.replaceChildren();
+        for (const item of items) {
+          const button = document.createElement("button");
+          button.textContent = item.label ?? item;
+          button.dataset.value = item.value ?? item;
+          button.addEventListener("click", () => onClick(button.dataset.value));
+          container.append(button);
+        }
+      }
+
+      function markActive(container, value) {
+        for (const button of container.querySelectorAll("button")) {
+          button.classList.toggle("active", button.dataset.value === value);
+        }
+      }
+
+      /**
+       * `<For each={items()}>` plus a selected-class binding, as two effects.
+       *
+       * They're deliberately separate: the list only re-renders when its source
+       * changes, and re-rendering has to re-apply the selection itself, because
+       * effect order can't be relied on to do it afterwards. Must be called
+       * under a reactive owner.
+       */
+      function chipEffect(container, items, selection, onClick) {
+        createEffect(() => {
+          renderChips(container, items(), onClick);
+          markActive(container, untrack(selection));
+        });
+        createEffect(() => markActive(container, selection()));
+      }
+
+      // --- The Solid part ------------------------------------------------
+      // A real app renders JSX and gets this scope from `render()`. With no
+      // build step here, `createRoot` provides the same owner: everything
+      // created inside it is disposed together.
+
+      createRoot(() => {
+        // --- State ---------------------------------------------------------
+        // Every control is a signal. The model is a *projection* of this
+        // state, which is why swapping models re-applies all of it for free.
+
+        const [url, setUrl] = createSignal(MODEL_URL);
+        const [keepPrevious, setKeepPrevious] = createSignal(false);
+
+        const [bodyMode, setBodyMode] = createSignal("procedural");
+        const [idleOn, setIdleOn] = createSignal(true);
+        const [lookAtOn, setLookAtOn] = createSignal(true);
+        const [clipUrl, setClipUrl] = createSignal(null);
+        const [gestureName, setGestureName] = createSignal(null);
+
+        const [manualPose, setManualPose] = createSignal({});
+        const [selectedBone, setSelectedBone] = createSignal(null);
+        const [snapshot, setSnapshot] = createSignal(null);
+
+        const [emotion, setEmotion] = createSignal(null);
+        const [brow, setBrow] = createSignal(null);
+        const [autoBlinkOn, setAutoBlinkOn] = createSignal(true);
+        const [gazeOn, setGazeOn] = createSignal(true);
+        const [blinkWeight, setBlinkWeight] = createSignal(0);
+        const [speakOn, setSpeakOn] = createSignal(false);
+        const [visemes, setVisemes] = createSignal({});
+
+        const [fps, setFps] = createSignal(0);
+        const [second, setSecond] = createSignal(null);
+
+        // --- Load ------------------------------------------------------------
+
+        const vrm = createVRM(url, { scene, keepPrevious });
+
+        // --- Feature controllers, rebuilt whenever the model changes ---------
+        // A memo keyed on the avatar is the whole lifecycle story: a new model
+        // builds new controllers and the old ones become garbage. None of
+        // these own GPU resources, so there is nothing to dispose by hand.
+
+        const face = createMemo(() => {
+          const avatar = vrm.avatar();
+          return avatar ? createVRMFace(avatar.vrm) : null;
+        });
+
+        const body = createMemo(() => {
+          const avatar = vrm.avatar();
+          return avatar ? createVRMBody(avatar.vrm) : null;
+        });
+
+        const procedural = createMemo(() => {
+          const avatar = vrm.avatar();
+          if (!avatar) return null;
+
+          // Layers are kept alongside the stack so they can be added and
+          // removed as the toggles change.
+          const gesture = createGestureAnimator(GESTURES);
+          const idle = createIdleAnimator();
+          const look = createLookAtAnimator({ target: camera });
+
+          return {
+            animator: createProceduralAnimator(avatar.vrm, [gesture]),
+            gesture,
+            idle,
+            look,
+          };
+        });
+
+        let currentAction = null;
+
+        const mixer = createMemo(() => {
+          const avatar = vrm.avatar();
+          // Actions belong to the mixer that made them; a new rig invalidates
+          // whatever was crossfading on the old one.
+          currentAction = null;
+          return avatar ? new THREE.AnimationMixer(avatar.vrm.scene) : null;
+        });
+
+        // --- The one per-frame registration ----------------------------------
+        // Runs before `vrm.update(delta)` flushes the pose, and is
+        // re-registered automatically when the avatar is swapped out.
+
+        let speakTime = 0;
+
+        createVRMUpdate(vrm.avatar, (delta) => {
+          face()?.update(delta); // the auto-blink FSM
+
+          const mode = bodyMode();
+          if (mode === "procedural") procedural()?.animator.update(delta);
+          else if (mode === "clip") mixer()?.update(delta);
+
+          if (speakOn()) {
+            speakTime += delta;
+            // A crude stand-in for a viseme stream: hop between vowels and
+            // wobble the opening. Real lip-sync feeds setAll() the same way.
+            const vowel =
+              VISEME_PRESETS[Math.floor(speakTime * 7) % VISEME_PRESETS.length];
+            const openness = 0.35 + 0.3 * (1 + Math.sin(speakTime * 24)) * 0.5;
+            face()?.viseme.setAll({ [vowel]: openness });
+          }
+        });
+
+        // --- Mode exclusivity -------------------------------------------------
+        // Leaving a mode hands the rig back, or the last pose stays frozen on
+        // the model. `defer: true` skips the initial run — there is no
+        // previous owner to release on mount.
+
+        createEffect(
+          on(
+            bodyMode,
+            (mode, previous) => {
+              if (previous === "procedural") procedural()?.animator.reset();
+              if (previous === "clip") {
+                mixer()?.stopAllAction();
+                currentAction = null;
+                body()?.resetPose();
+              }
+              if (previous === "manual") body()?.resetPose();
+
+              // Re-applying the manual pose is what makes it survive a
+              // round-trip through the other modes.
+              if (mode === "manual") applyManualPose();
+            },
+            { defer: true },
+          ),
+        );
+
+        // --- Procedural: the layer stack follows the toggles -------------------
+
+        createEffect(() => {
+          const stack = procedural();
+          if (!stack) return;
+
+          const wantIdle = idleOn();
+          const wantLook = lookAtOn();
+
+          untrack(() => {
+            // Rebuild rather than patch: composition order matters, and
+            // re-adding a layer would otherwise put it on top.
+            for (const layer of [...stack.animator.getLayers()]) {
+              stack.animator.remove(layer);
+            }
+            stack.animator.add(stack.gesture);
+            if (wantIdle) stack.animator.add(stack.idle);
+            if (wantLook) stack.animator.add(stack.look);
+          });
+        });
+
+        // Gestures are fired, not held — but the signal is still the source of
+        // truth, so a model swap replays whatever was running.
+        createEffect(() => {
+          const stack = procedural();
+          const name = gestureName();
+          if (!stack) return;
+
+          if (name) stack.gesture.play(name, { crossFade: 0.3 });
+          else stack.gesture.stop({ crossFade: 0.3 });
+        });
+
+        // --- Mixamo: a resource keyed on BOTH the avatar and the url ----------
+        // A clip is retargeted onto one specific rig, so it must not outlive
+        // the avatar it was built for — hence the compound source.
+
+        const [clip] = createResource(
+          () => {
+            const avatar = vrm.avatar();
+            const next = clipUrl();
+            return avatar && next ? { avatar, url: next } : false;
+          },
+          ({ avatar, url: next }) =>
+            loadMixamoAnimation(encodeURI(next), avatar.vrm),
+        );
+
+        createEffect(() => {
+          const loaded = clip.error ? null : clip();
+          const currentMixer = mixer();
+          if (!loaded || !currentMixer || bodyMode() !== "clip") return;
+
+          untrack(() => {
+            const next = currentMixer.clipAction(loaded);
+            next.reset().play();
+            // Crossfade out of whatever was already playing on this mixer.
+            if (currentAction && currentAction !== next) {
+              currentAction.crossFadeTo(next, 0.35, false);
+            }
+            currentAction = next;
+          });
+        });
+
+        // --- Manual posing ------------------------------------------------------
+        // The pose lives in a signal and the body is a projection of it, so it
+        // re-applies itself after a model swap or a trip through another mode.
+
+        function applyManualPose() {
+          const target = body();
+          if (!target) return;
+
+          target.resetPose();
+          for (const [bone, euler] of Object.entries(manualPose())) {
+            target.setEulerDegrees(bone, euler);
+          }
+        }
+
+        createEffect(() => {
+          manualPose();
+          body();
+          if (untrack(bodyMode) === "manual") applyManualPose();
+        });
+
+        // --- Face: every control is re-applied to a new model automatically ------
+
+        createEffect(() => {
+          const current = face();
+          if (!current) return;
+          if (autoBlinkOn()) current.eye.autoBlink();
+          else current.eye.stopAutoBlink();
+        });
+
+        createEffect(() => {
+          const current = face();
+          if (!current) return;
+          if (gazeOn()) current.eye.gaze(camera);
+          else current.eye.clearGaze();
+        });
+
+        createEffect(() => {
+          const current = face();
+          if (!current) return;
+          // The auto-blink FSM owns the same channel, so a manual eyelid only
+          // makes sense with it switched off.
+          if (!autoBlinkOn()) current.eye.blink(blinkWeight());
+        });
+
+        createEffect(() => {
+          const current = face();
+          if (!current) return;
+          const name = emotion();
+          if (name) current.emotion.setExclusive(name);
+          else current.emotion.reset();
+        });
+
+        createEffect(() => {
+          const current = face();
+          if (!current) return;
+          const shape = brow();
+          if (shape) current.brow.setExclusive(shape);
+          else current.brow.reset();
+        });
+
+        createEffect(() => {
+          const current = face();
+          if (!current) return;
+          // While "speak" runs, the frame loop owns the visemes instead.
+          if (!speakOn()) current.viseme.setAll(visemes());
+        });
+
+        // --- The render loop -------------------------------------------------
+
+        let frames = 0;
+        let since = 0;
+
+        const loop = createFrameLoop((delta) => {
+          vrm.avatar()?.update(delta);
+          second()?.update(delta); // the component-mounted one, if present
+          controls.update();
+          renderer.render(scene, camera);
+
+          frames++;
+          since += delta;
+          if (since >= 0.5) {
+            setFps(Math.round(frames / since));
+            frames = 0;
+            since = 0;
+          }
+        });
+
+        // --- Reactive DOM bindings ---------------------------------------------
+
+        createEffect(() => {
+          const avatar = vrm.avatar();
+          if (vrm.loading()) {
+            const p = vrm.progress();
+            el("#status").textContent = p
+              ? `Loading… ${Math.round(p.progress * 100)}%`
+              : "Loading…";
+          } else if (avatar) {
+            el("#status").textContent = "Loaded. Orbit to move the camera.";
+          } else if (vrm.error()) {
+            el("#status").textContent = "Load failed.";
+          } else {
+            el("#status").textContent = "No model. Pick a source above.";
+          }
+        });
+
+        createEffect(() => {
+          const p = vrm.progress();
+          el("#progress-fill").style.width = vrm.loading()
+            ? `${Math.round((p?.progress ?? 0) * 100)}%`
+            : "0%";
+        });
+
+        createEffect(() => {
+          const failure = vrm.error() ?? clip.error;
+          el("#error").textContent = failure
+            ? String(failure?.stack ?? failure)
+            : "";
+        });
+
+        createEffect(() => {
+          el("#btn-loop").textContent = loop.running() ? "Pause" : "Resume";
+          el("#btn-loop").classList.toggle("active", !loop.running());
+          el("#loop-readout").textContent = loop.running()
+            ? `running — ${fps()} fps`
+            : "stopped";
+        });
+
+        createEffect(() => {
+          const mode = bodyMode();
+          markActive(el("#mode-row"), mode);
+          el("#pane-procedural").hidden = mode !== "procedural";
+          el("#pane-clip").hidden = mode !== "clip";
+          el("#pane-manual").hidden = mode !== "manual";
+        });
+
+        createEffect(() => {
+          const name = gestureName();
+          markActive(el("#gesture-row"), name);
+          el("#gesture-readout").textContent = name
+            ? `Playing "${name}".`
+            : "No gesture playing.";
+        });
+
+        createEffect(() => {
+          const next = clipUrl();
+          markActive(el("#clip-row"), next);
+          el("#clip-readout").textContent = clip.loading
+            ? "Retargeting…"
+            : clip.error
+              ? "Failed — is the .fbx in animation/?"
+              : next
+                ? "Playing. Pick another to crossfade."
+                : "No clip loaded.";
+        });
+
+        // `emotion.list()` returns drivable PRESET names, so they can be fed
+        // straight back to `setExclusive`.
+        chipEffect(
+          el("#emotion-row"),
+          () => face()?.emotion.list() ?? [],
+          emotion,
+          (value) => setEmotion((prev) => (prev === value ? null : value)),
+        );
+
+        // Brows are the exception: `brow.list()` reports raw MORPH TARGET names
+        // (Fcl_BRW_Angry, …), which are not what `brow.set()` takes — it wants a
+        // canonical shape from `brow.shapes` ("angry", "fun", …) and resolves it
+        // through the fuzzy matcher. Feeding a morph name back in silently
+        // matches nothing. So: offer the canonical shapes, and keep only the
+        // ones that actually resolve on this rig, which is what makes the row
+        // behave like the emotion row above.
+        const browShapes = createMemo(() => {
+          const current = face();
+          if (!current) return [];
+          return current.brow.shapes.filter((shape) =>
+            current.morph.matchMorph(createBrowPatterns(shape)),
+          );
+        });
+
+        chipEffect(el("#brow-row"), browShapes, brow, (value) =>
+          setBrow((prev) => (prev === value ? null : value)),
+        );
+
+        createEffect(() => {
+          el("#brow-row").parentElement.querySelector(".hint").textContent =
+            browShapes().length
+              ? "No VRM preset exists for eyebrows, so these are raw morphs."
+              : "This model ships no eyebrow morphs.";
+        });
+
+        chipEffect(
+          el("#gesture-row"),
+          () => procedural()?.gesture.list() ?? [],
+          gestureName,
+          (value) => {
+            setBodyMode("procedural");
+            setGestureName((prev) => (prev === value ? null : value));
+          },
+        );
+
+        createEffect(() => {
+          const target = body();
+          const bones = target ? target.listBones() : [];
+          const select = el("#bone-select");
+
+          select.replaceChildren();
+          for (const bone of bones) {
+            const option = document.createElement("option");
+            option.value = bone;
+            option.textContent = bone;
+            select.append(option);
+          }
+
+          // Keep the selection if the new model has that joint too — not
+          // every VRM exposes every bone.
+          const previous = untrack(selectedBone);
+          const next = bones.includes(previous) ? previous : (bones[0] ?? null);
+          select.value = next ?? "";
+          setSelectedBone(next);
+        });
+
+        // Sliders follow the selected bone's recorded angles.
+        createEffect(() => {
+          const bone = selectedBone();
+          const pose = manualPose();
+          const euler = (bone && pose[bone]) || { x: 0, y: 0, z: 0 };
+
+          for (const axis of ["x", "y", "z"]) {
+            const value = Math.round(euler[axis] ?? 0);
+            el(`#bone-${axis}`).value = String(value);
+            el(`#bone-${axis}-value`).textContent = `${value}°`;
+          }
+        });
+
+        // --- Input -> signals ---------------------------------------------------
+
+        let objectUrl = null;
+
+        const setModel = (next) => {
+          // An object URL from a previous file pick is only safe to revoke
+          // once nothing points at it any more.
+          if (objectUrl && next !== objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+            objectUrl = null;
+          }
+          setUrl(next);
+        };
+
+        el("#btn-avatar").addEventListener("click", () => setModel(MODEL_URL));
+        el("#btn-clear").addEventListener("click", () => setModel(null));
+        el("#btn-file").addEventListener("click", () =>
+          el("#file-input").click(),
+        );
+
+        el("#file-input").addEventListener("change", (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          const next = URL.createObjectURL(file);
+          setModel(next);
+          objectUrl = next;
+        });
+
+        el("#keep-previous").addEventListener("change", (event) =>
+          setKeepPrevious(event.target.checked),
+        );
+
+        el("#btn-loop").addEventListener("click", () =>
+          loop.running() ? loop.stop() : loop.start(),
+        );
+
+        for (const button of el("#mode-row").querySelectorAll("button")) {
+          button.dataset.value = button.dataset.mode;
+          button.addEventListener("click", () =>
+            setBodyMode(button.dataset.mode),
+          );
+        }
+
+        el("#toggle-idle").addEventListener("change", (event) =>
+          setIdleOn(event.target.checked),
+        );
+        el("#toggle-lookat").addEventListener("change", (event) =>
+          setLookAtOn(event.target.checked),
+        );
+        el("#btn-gesture-stop").addEventListener("click", () =>
+          setGestureName(null),
+        );
+
+        // Baking runs against a recording sink, so the live model is never
+        // touched — but position tracks read rest from the rig, so the stack
+        // hands the bones back first.
+        el("#btn-bake").addEventListener("click", () => {
+          const avatar = vrm.avatar();
+          if (!avatar) return;
+
+          setGestureName(null);
+          setBodyMode("off");
+
+          const baked = bakeAnimator(avatar.vrm, createIdleAnimator(), {
+            duration: 8,
+            fps: 30,
+            loop: true,
+            name: "baked-idle",
+          });
+
+          const currentMixer = mixer();
+          const action = currentMixer.clipAction(baked);
+          action.reset().play();
+          if (currentAction && currentAction !== action) {
+            currentAction.crossFadeTo(action, 0.3, false);
+          }
+          currentAction = action;
+
+          setClipUrl(null); // this clip came from the baker, not a url
+          setBodyMode("clip");
+          el("#clip-readout").textContent =
+            "Playing a baked 8s idle — an ordinary AnimationClip.";
+        });
+
+        renderChips(el("#clip-row"), CLIP_PRESETS, (value) => {
+          setBodyMode("clip");
+          setClipUrl(value);
+        });
+
+        el("#bone-select").addEventListener("change", (event) =>
+          setSelectedBone(event.target.value),
+        );
+
+        for (const axis of ["x", "y", "z"]) {
+          el(`#bone-${axis}`).addEventListener("input", (event) => {
+            const bone = selectedBone();
+            if (!bone) return;
+
+            const value = Number(event.target.value);
+            setBodyMode("manual"); // manual posing owns the rig too
+            setManualPose((prev) => ({
+              ...prev,
+              [bone]: { ...(prev[bone] ?? {}), [axis]: value },
+            }));
+          });
+        }
+
+        el("#btn-pose-reset").addEventListener("click", () =>
+          setManualPose({}),
+        );
+        el("#btn-pose-snapshot").addEventListener("click", () =>
+          setSnapshot(body()?.getPose() ?? null),
+        );
+        el("#btn-pose-restore").addEventListener("click", () => {
+          const saved = snapshot();
+          if (!saved) return;
+          setBodyMode("manual");
+          // getPose/setPose round-trips the raw VRMPose, which the degree
+          // sliders don't model — so clear them rather than lie.
+          setManualPose({});
+          body()?.setPose(saved);
+        });
+
+        el("#toggle-blink").addEventListener("change", (event) =>
+          setAutoBlinkOn(event.target.checked),
+        );
+        el("#toggle-gaze").addEventListener("change", (event) =>
+          setGazeOn(event.target.checked),
+        );
+        el("#blink-weight").addEventListener("input", (event) => {
+          const value = Number(event.target.value);
+          setAutoBlinkOn(false);
+          el("#toggle-blink").checked = false;
+          setBlinkWeight(value);
+          el("#blink-value").textContent = value.toFixed(2);
+        });
+
+        el("#toggle-speak").addEventListener("change", (event) => {
+          setSpeakOn(event.target.checked);
+          if (!event.target.checked) speakTime = 0;
+        });
+
+        // One slider per vowel, built once — the five are fixed by the spec.
+        for (const viseme of VISEME_PRESETS) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "slider";
+          wrapper.innerHTML =
+            `<div><span>${viseme}</span><span id="viseme-${viseme}-value">0.00</span></div>` +
+            `<input id="viseme-${viseme}" type="range" min="0" max="1" step="0.01" value="0" />`;
+          el("#viseme-sliders").append(wrapper);
+
+          wrapper.querySelector("input").addEventListener("input", (event) => {
+            const value = Number(event.target.value);
+            el(`#viseme-${viseme}-value`).textContent = value.toFixed(2);
+            setVisemes((prev) => ({ ...prev, [viseme]: value }));
+          });
+        }
+
+        el("#btn-face-reset").addEventListener("click", () => {
+          setEmotion(null);
+          setBrow(null);
+          setSpeakOn(false);
+          setVisemes({});
+          setBlinkWeight(0);
+
+          el("#toggle-speak").checked = false;
+          el("#blink-weight").value = "0";
+          el("#blink-value").textContent = "0.00";
+          for (const viseme of VISEME_PRESETS) {
+            el(`#viseme-${viseme}`).value = "0";
+            el(`#viseme-${viseme}-value`).textContent = "0.00";
+          }
+        });
+
+        // --- The component, mounted and unmounted by hand ------------------
+        // `<Show when={mounted()}><Vrm …/></Show>` compiles to roughly this:
+        // a nested root whose disposal takes the avatar with it.
+
+        let unmount = null;
+
+        el("#btn-mount").addEventListener("click", () => {
+          const button = el("#btn-mount");
+
+          if (unmount) {
+            unmount();
+            unmount = null;
+            setSecond(null);
+            button.textContent = "Mount second avatar";
+            button.classList.remove("active");
+            el("#mount-readout").textContent = "Not mounted — avatar disposed.";
+            return;
+          }
+
+          createRoot((dispose) => {
+            unmount = dispose;
+
+            // JSX would write this as
+            //   <Vrm url={MODEL_URL} scene={scene} onLoad={…} />
+            // — a component is just a function call with reactive props.
+            Vrm({
+              url: MODEL_URL,
+              scene,
+              onLoad: (avatar) => {
+                avatar.scene.position.x = 0.8;
+                setSecond(() => avatar); // so the frame loop advances it too
+                el("#mount-readout").textContent =
+                  "Mounted — second avatar loaded.";
+              },
+              onError: (error) => {
+                el("#mount-readout").textContent = `Mount failed: ${error}`;
+              },
+            });
+          });
+
+          button.textContent = "Unmount second avatar";
+          button.classList.add("active");
+          el("#mount-readout").textContent = "Mounting…";
+        });
+      });
+    </script>
+  </body>
+</html>

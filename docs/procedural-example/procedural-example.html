@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Fano VRM Controller — Procedural Animation Example</title>
+
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+
+			html,
+			body {
+				margin: 0;
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+				background: #111;
+				font-family:
+					Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+					sans-serif;
+			}
+
+			#canvas {
+				width: 100vw;
+				height: 100vh;
+				display: block;
+			}
+
+			#panel {
+				position: fixed;
+				top: 16px;
+				left: 16px;
+				z-index: 10;
+				width: 340px;
+				max-height: calc(100vh - 32px);
+				overflow-y: auto;
+				padding: 14px;
+				border: 1px solid rgba(255, 255, 255, 0.12);
+				border-radius: 14px;
+				background: rgba(0, 0, 0, 0.7);
+				color: white;
+				backdrop-filter: blur(12px);
+			}
+
+			#panel h1 {
+				margin: 0 0 4px;
+				font-size: 16px;
+			}
+
+			#status {
+				margin: 0;
+				color: rgba(255, 255, 255, 0.7);
+				font-size: 13px;
+				line-height: 1.5;
+			}
+
+			#error {
+				margin-top: 10px;
+				color: #ff6b6b;
+				font-size: 13px;
+				white-space: pre-wrap;
+			}
+
+			.section {
+				margin-top: 14px;
+				border-top: 1px solid rgba(255, 255, 255, 0.12);
+				padding-top: 12px;
+			}
+
+			.section > h2 {
+				margin: 0 0 8px;
+				font-size: 12px;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				color: rgba(255, 255, 255, 0.55);
+			}
+
+			.hint {
+				margin: 0 0 8px;
+				font-size: 12px;
+				line-height: 1.5;
+				color: rgba(255, 255, 255, 0.6);
+			}
+
+			.row {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 6px;
+			}
+
+			button {
+				padding: 6px 10px;
+				border: 1px solid rgba(255, 255, 255, 0.18);
+				border-radius: 8px;
+				background: rgba(255, 255, 255, 0.12);
+				color: white;
+				font-size: 12px;
+				cursor: pointer;
+			}
+
+			button:hover {
+				background: rgba(255, 255, 255, 0.2);
+			}
+
+			button.ghost {
+				background: transparent;
+			}
+
+			button.active {
+				border-color: #7dd3fc;
+				background: rgba(125, 211, 252, 0.22);
+			}
+
+			label.toggle {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				margin-bottom: 6px;
+				font-size: 13px;
+			}
+
+			.slider {
+				margin-bottom: 8px;
+			}
+
+			.slider > div {
+				display: flex;
+				justify-content: space-between;
+				font-size: 12px;
+				color: rgba(255, 255, 255, 0.7);
+			}
+
+			input[type="range"] {
+				width: 100%;
+			}
+
+			code {
+				font-size: 11px;
+				color: #7dd3fc;
+			}
+
+			#readout {
+				margin: 6px 0 0;
+				font-size: 12px;
+				font-variant-numeric: tabular-nums;
+				color: rgba(255, 255, 255, 0.6);
+			}
+		</style>
+
+		<!--
+      Import map points bare specifiers at the repo's node_modules, and the
+      built package at ../../dist. Serve the repo root (`bunx serve .`) and
+      open /docs/procedural-example/procedural-example.html.
+    -->
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "../../node_modules/three/build/three.module.js",
+					"three/addons/": "../../node_modules/three/examples/jsm/",
+					"@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+				}
+			}
+		</script>
+	</head>
+
+	<body>
+		<canvas id="canvas"></canvas>
+
+		<div id="panel">
+			<h1>Procedural Animation</h1>
+			<p id="status">Waiting...</p>
+
+			<div class="section">
+				<h2>Drive mode</h2>
+				<p class="hint">
+					Procedural animation and a Mixamo mixer both own the normalized rig,
+					so exactly one of these is live at a time.
+				</p>
+				<div class="row">
+					<button id="mode-live" class="active">Live animator</button>
+					<button id="mode-baked" class="ghost">Baked clip</button>
+				</div>
+				<p id="mode-status" class="hint" style="margin-top: 8px"></p>
+			</div>
+
+			<div class="section">
+				<h2>Idle layer</h2>
+				<label class="toggle">
+					<input type="checkbox" id="breathing" checked />
+					Breathing
+				</label>
+				<label class="toggle">
+					<input type="checkbox" id="sway" checked />
+					Weight-shift sway
+				</label>
+				<label class="toggle">
+					<input type="checkbox" id="wander" checked />
+					Micro-wander (seeded noise)
+				</label>
+				<label class="toggle">
+					<input type="checkbox" id="bob" />
+					Hip bob (lifts the feet)
+				</label>
+
+				<div class="slider">
+					<div><span>Breath amplitude</span><span id="amp-value">2.2°</span></div>
+					<input type="range" id="amp" min="0" max="10" step="0.1" value="2.2" />
+				</div>
+			</div>
+
+			<div class="section">
+				<h2>Look-at layer</h2>
+				<p class="hint">
+					Bone-level head/neck/chest turn. Orbit the camera and the avatar
+					follows it — <code>face.eye.gaze()</code> drives the eyes on top.
+				</p>
+				<label class="toggle">
+					<input type="checkbox" id="look" checked />
+					Track the camera
+				</label>
+				<p id="readout">yaw 0.0° · pitch 0.0°</p>
+			</div>
+
+			<div class="section">
+				<h2>Gestures</h2>
+				<p class="hint">
+					Keyframed poses on top of the idle. A non-looping gesture releases
+					itself and the idle takes back over.
+				</p>
+				<div id="gesture-list" class="row"></div>
+				<div class="row" style="margin-top: 6px">
+					<button id="stop-gesture" class="ghost">Stop</button>
+				</div>
+			</div>
+
+			<div id="error"></div>
+		</div>
+
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+			// IMPORTANT: run `bun run build` first — this imports the built package.
+			import {
+				loadVRM,
+				createVRMFace,
+				createIdleAnimator,
+				createLookAtAnimator,
+				createGestureAnimator,
+				createProceduralAnimator,
+				bakeAnimator,
+			} from "../../dist/index.js";
+
+			const MODEL_URL = "../../avatar.vrm";
+
+			const canvas = document.querySelector("#canvas");
+			const statusEl = document.querySelector("#status");
+			const errorEl = document.querySelector("#error");
+			const modeStatusEl = document.querySelector("#mode-status");
+			const readoutEl = document.querySelector("#readout");
+			const gestureListEl = document.querySelector("#gesture-list");
+
+			const setStatus = (m) => (statusEl.textContent = m);
+			const setModeStatus = (m) => (modeStatusEl.textContent = m);
+			const setError = (e) =>
+				(errorEl.textContent = e ? String(e?.stack ?? e) : "");
+
+			let avatar = null;
+			let face = null;
+			let animator = null;
+			let look = null;
+			let gestures = null;
+
+			/** "live" = procedural animator; "baked" = an AnimationClip on a mixer. */
+			let mode = "live";
+			let mixer = null;
+
+			// ---- Gesture library -------------------------------------------------------
+			// Poses are plain degrees per bone. Bones a model doesn't have are simply
+			// never reached, so the same library works across rigs.
+
+			// Angles are measured from the VRM rest pose, which is a T-pose: the
+			// right arm starts pointing straight out along -X, so z: -90 takes it
+			// to vertical. Upper-arm and forearm rotations ADD up the chain, so
+			// the two must total ~-90 to leave the hand beside the head — go past
+			// that and the arm folds over the top of the head instead.
+			const GESTURES = {
+				wave: [
+					{ time: 0, pose: {} },
+					{
+						// -50 upper + -40 fore = -90: forearm vertical, hand by the head.
+						time: 0.35,
+						pose: {
+							rightShoulder: { z: -6 },
+							rightUpperArm: { z: -50 },
+							rightLowerArm: { z: -40 },
+						},
+						ease: "easeOutBack",
+					},
+					{
+						// The wave itself: rock the forearm ±15° around vertical.
+						time: 0.7,
+						pose: {
+							rightShoulder: { z: -6 },
+							rightUpperArm: { z: -50 },
+							rightLowerArm: { z: -10 },
+						},
+					},
+					{
+						time: 1.05,
+						pose: {
+							rightShoulder: { z: -6 },
+							rightUpperArm: { z: -50 },
+							rightLowerArm: { z: -40 },
+						},
+					},
+					{
+						time: 1.4,
+						pose: {
+							rightShoulder: { z: -6 },
+							rightUpperArm: { z: -50 },
+							rightLowerArm: { z: -10 },
+						},
+					},
+					{ time: 2, pose: {} },
+				],
+
+				nod: [
+					{ time: 0, pose: {} },
+					{ time: 0.25, pose: { head: { x: 18 }, neck: { x: 8 } } },
+					{ time: 0.5, pose: { head: { x: -6 }, neck: { x: -2 } } },
+					{ time: 0.8, pose: {} },
+				],
+
+				shrug: [
+					{ time: 0, pose: {} },
+					{
+						time: 0.4,
+						pose: {
+							leftShoulder: { z: 18 },
+							rightShoulder: { z: -18 },
+							leftUpperArm: { z: 25 },
+							rightUpperArm: { z: -25 },
+						},
+						ease: "easeOutCubic",
+					},
+					{
+						time: 1,
+						pose: {
+							leftShoulder: { z: 18 },
+							rightShoulder: { z: -18 },
+							leftUpperArm: { z: 25 },
+							rightUpperArm: { z: -25 },
+						},
+					},
+					{ time: 1.5, pose: {} },
+				],
+
+				// A looping one, to show `loop` and `stop()`.
+				sway: {
+					keyframes: [
+						{ time: 0, pose: { spine: { z: 6 }, head: { z: -3 } } },
+						{ time: 1.5, pose: { spine: { z: -6 }, head: { z: 3 } } },
+						{ time: 3, pose: { spine: { z: 6 }, head: { z: -3 } } },
+					],
+					loop: true,
+				},
+			};
+
+			// ---- Three.js boilerplate ------------------------------------------------
+
+			const scene = new THREE.Scene();
+			scene.background = new THREE.Color(0x111111);
+
+			const camera = new THREE.PerspectiveCamera(
+				35,
+				window.innerWidth / window.innerHeight,
+				0.1,
+				100,
+			);
+			camera.position.set(0, 1.35, 2.6);
+
+			const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+			const controls = new OrbitControls(camera, renderer.domElement);
+			controls.target.set(0, 1.2, 0);
+			controls.enableDamping = true;
+
+			scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+			const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+			dirLight.position.set(1, 2, 3);
+			scene.add(dirLight);
+			scene.add(new THREE.GridHelper(10, 10));
+
+			// ---- Building the layer stack ----------------------------------------------
+
+			function idleOptions() {
+				const amp = Number(document.querySelector("#amp").value);
+
+				return {
+					breathing: document.querySelector("#breathing").checked
+						? { amp }
+						: false,
+					sway: document.querySelector("#sway").checked,
+					noise: document.querySelector("#wander").checked,
+					bob: document.querySelector("#bob").checked,
+				};
+			}
+
+			// Rebuilt whenever the idle options change — animators are cheap, and
+			// swapping the layer means the old one's bones relax on the next frame.
+			let idleLayer = null;
+
+			function rebuildIdle() {
+				if (!animator) return;
+
+				if (idleLayer) animator.remove(idleLayer);
+				idleLayer = createIdleAnimator(idleOptions());
+
+				// Insert underneath look-at and gestures by rebuilding the stack in
+				// order: gesture (base pose) -> idle -> look-at (small, on top).
+				animator.remove(look);
+				animator.remove(gestures);
+				animator.add(gestures, idleLayer, look);
+			}
+
+			for (const id of ["breathing", "sway", "wander", "bob"]) {
+				document.querySelector(`#${id}`).addEventListener("change", rebuildIdle);
+			}
+
+			const ampEl = document.querySelector("#amp");
+			ampEl.addEventListener("input", () => {
+				document.querySelector("#amp-value").textContent =
+					`${Number(ampEl.value).toFixed(1)}°`;
+				rebuildIdle();
+			});
+
+			document.querySelector("#look").addEventListener("change", (event) => {
+				// Clearing the target springs the turn back to center rather than
+				// dropping it — the layer stays in the stack either way.
+				look?.[event.target.checked ? "setTarget" : "clearTarget"](camera);
+			});
+
+			// ---- Gestures ---------------------------------------------------------------
+
+			for (const name of Object.keys(GESTURES)) {
+				const button = document.createElement("button");
+				button.textContent = name;
+				button.className = "ghost";
+				button.addEventListener("click", () => {
+					if (mode !== "live") setMode("live");
+					gestures.play(name);
+				});
+				gestureListEl.appendChild(button);
+			}
+
+			document.querySelector("#stop-gesture").addEventListener("click", () => {
+				gestures?.stop();
+			});
+
+			// ---- Live vs baked ----------------------------------------------------------
+
+			const liveBtn = document.querySelector("#mode-live");
+			const bakedBtn = document.querySelector("#mode-baked");
+
+			function setMode(next) {
+				if (!avatar || next === mode) return;
+
+				mode = next;
+				liveBtn.classList.toggle("active", next === "live");
+				liveBtn.classList.toggle("ghost", next !== "live");
+				bakedBtn.classList.toggle("active", next === "baked");
+				bakedBtn.classList.toggle("ghost", next !== "baked");
+
+				if (next === "baked") {
+					// Hand the rig over: reset the animator so every bone it owns
+					// returns to rest before the mixer starts writing them.
+					animator.reset();
+
+					// Bake the *same* idle the live path was running. Deterministic, so
+					// the clip is exactly what you were just looking at.
+					const clip = bakeAnimator(avatar.vrm, createIdleAnimator(idleOptions()), {
+						duration: 8,
+						fps: 30,
+						loop: true,
+						name: "idle",
+					});
+
+					mixer = new THREE.AnimationMixer(avatar.vrm.scene);
+					mixer.clipAction(clip).play();
+
+					setModeStatus(
+						`Baked ${clip.tracks.length} tracks · ${clip.duration.toFixed(1)}s loop, played through a plain AnimationMixer.`,
+					);
+				} else {
+					// Hand it back the other way.
+					mixer?.stopAllAction();
+					mixer = null;
+					setModeStatus("Live: signals evaluated every frame.");
+				}
+			}
+
+			liveBtn.addEventListener("click", () => setMode("live"));
+			bakedBtn.addEventListener("click", () => setMode("baked"));
+
+			// ---- Load ------------------------------------------------------------------
+
+			async function loadAvatar() {
+				try {
+					setError("");
+					setStatus("Loading VRM...");
+
+					avatar = await loadVRM(MODEL_URL, {
+						scene,
+						onProgress(p) {
+							const pct = Math.round(p.progress * 100);
+							setStatus(
+								p.total > 0
+									? `Loading VRM... ${pct}%`
+									: `Loading VRM... ${p.loaded} bytes`,
+							);
+						},
+					});
+
+					avatar.scene.rotation.y = Math.PI; // face the camera
+
+					// Face control is an independent concern — it only touches
+					// expression weights, so it never fights the bone layers below.
+					face = createVRMFace(avatar.vrm);
+					face.eye.autoBlink();
+					face.eye.gaze(camera);
+					avatar.registerUpdate((delta) => face.update(delta));
+
+					gestures = createGestureAnimator(GESTURES);
+					look = createLookAtAnimator({ target: camera });
+					idleLayer = createIdleAnimator(idleOptions());
+
+					// Order is composition order: the gesture sets the base pose, the
+					// idle adds breath on top of it, look-at aims the head last.
+					animator = createProceduralAnimator(avatar.vrm, [
+						gestures,
+						idleLayer,
+						look,
+					]);
+
+					// The one seam: procedural runs before vrm.update flushes the pose.
+					// In baked mode the mixer takes this slot instead — never both.
+					avatar.registerUpdate((delta) => {
+						if (mode === "live") animator.update(delta);
+						else mixer?.update(delta);
+					});
+
+					setModeStatus("Live: signals evaluated every frame.");
+					setStatus("Loaded. Orbit the camera, or fire a gesture.");
+				} catch (error) {
+					console.error(error);
+					setStatus("Failed to load VRM.");
+					setError(error);
+				}
+			}
+
+			// ---- Render loop -------------------------------------------------------------
+
+			const clock = new THREE.Clock();
+
+			function animate() {
+				requestAnimationFrame(animate);
+				const delta = clock.getDelta();
+
+				controls.update();
+				// Runs the registered updaters (procedural or mixer, plus the face
+				// FSM) and then vrm.update, which flushes the pose to the mesh.
+				avatar?.update(delta);
+
+				if (look) {
+					readoutEl.textContent = `yaw ${look.yaw.toFixed(1)}° · pitch ${look.pitch.toFixed(1)}°`;
+				}
+
+				renderer.render(scene, camera);
+			}
+
+			window.addEventListener("resize", () => {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+			});
+
+			loadAvatar();
+			animate();
+		</script>
+	</body>
+</html>
