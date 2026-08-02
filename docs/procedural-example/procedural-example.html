@@ -289,22 +289,24 @@
 				wave: [
 					{ time: 0, pose: {} },
 					{
-						// -50 upper + -40 fore = -90: forearm vertical, hand by the head.
+						// -50 upper + -50 fore = -100: forearm just past vertical.
 						time: 0.35,
 						pose: {
 							rightShoulder: { z: -6 },
 							rightUpperArm: { z: -50 },
-							rightLowerArm: { z: -40 },
+							rightLowerArm: { z: -50 },
 						},
 						ease: "easeOutBack",
 					},
 					{
-						// The wave itself: rock the forearm ±15° around vertical.
+						// The wave itself: rock the forearm between -70 and -100
+						// total, so it crosses vertical the way a real wave does
+						// without ever folding over the head.
 						time: 0.7,
 						pose: {
 							rightShoulder: { z: -6 },
 							rightUpperArm: { z: -50 },
-							rightLowerArm: { z: -10 },
+							rightLowerArm: { z: -20 },
 						},
 					},
 					{
@@ -312,7 +314,7 @@
 						pose: {
 							rightShoulder: { z: -6 },
 							rightUpperArm: { z: -50 },
-							rightLowerArm: { z: -40 },
+							rightLowerArm: { z: -50 },
 						},
 					},
 					{
@@ -320,7 +322,7 @@
 						pose: {
 							rightShoulder: { z: -6 },
 							rightUpperArm: { z: -50 },
-							rightLowerArm: { z: -10 },
+							rightLowerArm: { z: -20 },
 						},
 					},
 					{ time: 2, pose: {} },

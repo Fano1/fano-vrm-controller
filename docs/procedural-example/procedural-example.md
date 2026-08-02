@@ -266,10 +266,12 @@ Named pose timelines you fire on demand. Keyframes are plain degrees per bone:
 ```ts
 const gestures = createGestureAnimator({
   wave: [
-    { time: 0,   pose: {} },
-    { time: 0.3, pose: { rightUpperArm: { z: -75 } }, ease: "easeOutBack" },
-    { time: 0.6, pose: { rightUpperArm: { z: -75 }, rightLowerArm: { z: -50 } } },
-    { time: 1.4, pose: {} },
+    { time: 0,    pose: {} },
+    { time: 0.35, pose: { rightUpperArm: { z: -50 }, rightLowerArm: { z: -50 } },
+      ease: "easeOutBack" },
+    { time: 0.7,  pose: { rightUpperArm: { z: -50 }, rightLowerArm: { z: -20 } } },
+    { time: 1.05, pose: { rightUpperArm: { z: -50 }, rightLowerArm: { z: -50 } } },
+    { time: 1.9,  pose: {} },
   ],
   idleSway: { keyframes: [...], loop: true },
 });
@@ -291,11 +293,32 @@ Bones the model lacks are written and harmlessly ignored, and poses are
 converted to the model's humanoid convention on the way out — so one gesture
 library really does work across rigs, VRM 0.x and 1.0 alike.
 
-Keyframe poses use the **VRM 1.0 convention** described above: for the right
-arm, `z: -95` raises it; for the left, `z: +95`. If a gesture comes out
-mirrored, you're almost certainly authoring against a raw `VRMBody` pose
-captured from a VRM 0.x model — run it through `gesturePoseFromVRMPose` *and*
-mirror it, or re-capture from a 1.0 model.
+### Getting the angles right
+
+Two things trip people up when authoring keyframes:
+
+**Angles are measured from the VRM rest pose, which is a T-pose.** The arms
+start pointing straight *out*, not hanging down. So for the right arm `z: -90`
+takes it from horizontal to vertical, and `z: -45` puts it halfway.
+
+**Rotations add up the bone chain.** A child bone's angle is relative to its
+parent, so the upper arm and forearm *sum*:
+
+```ts
+{ rightUpperArm: { z: -50 }, rightLowerArm: { z: -40 } }  // total -90: forearm vertical ✓
+{ rightUpperArm: { z: -95 }, rightLowerArm: { z: -55 } }  // total -150: folds over the head ✗
+```
+
+For a wave you want the total near -90 — forearm vertical, hand beside the
+head — and the wave motion itself is the forearm rocking either side of that.
+Overshoot and the arm swings past vertical and collapses over the top of the
+head.
+
+Signs follow the **VRM 1.0 convention** described above: the right arm raises
+on negative `z`, the left on positive. If a whole gesture comes out mirrored,
+you're probably authoring against a raw `VRMBody` pose captured from a VRM 0.x
+model — re-capture from a 1.0 model, or mirror it after
+`gesturePoseFromVRMPose`.
 
 Already have a pose you like? Snapshot it and convert:
 
