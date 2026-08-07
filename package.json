@@ -1,6 +1,6 @@
 {
 	"name": "@fanoalone/vrm-controller",
-	"version": "0.0.1",
+	"version": "0.0.3",
 	"description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm, with face control, Mixamo retargeting, and procedural animation.",
 	"author": "Ayush Pradhan",
 	"license": "SEE LICENSE IN LICENSE",
