@@ -48,16 +48,18 @@ loop again.
 | `createVRMBody` | Read/write individual joints by `VRMHumanBoneName` | [5](#5-body-posing--createvrmbody) |
 | `createProceduralAnimator` | Generate motion at runtime — idle, look-at, gestures; bake it to a clip | [6](#6-procedural-animation--motion-without-a-fbx) |
 | `createVRM` / `createFrameLoop` | Solid bindings — reactive loading, disposal, and the frame loop | [7](#7-solid) |
+| `useVRM` / `useFrameLoop` | React bindings that never re-render for loading, progress, or frames | [8](#8-react) |
 
 Every piece is optional and independently importable — pull in the loader alone
 if that's all you need.
 
-## Three entry points
+## Four entry points
 
 | Import path | Consumes | Use it for |
 | --- | --- | --- |
 | `@fano/vrm-controller` | three + @pixiv/three-vrm | Loading, face control, Mixamo animation, procedural animation |
 | `@fano/vrm-controller/r3f` | + react + @react-three/fiber | `<Vrm url="..." />` and `useVRM()` in React Three Fiber |
+| `@fanoalone/vrm-controller/react` | + react | Hooks and a frame loop for React with your own renderer — [section 8](#8-react) |
 | `@fano/vrm-controller/solid` | + solid-js | `createVRM()` and a frame loop for Solid — [section 7](#7-solid) |
 
 The framework entries add lifecycle, not features: everything in the table
@@ -448,6 +450,9 @@ import { Vrm } from "@fano/vrm-controller/r3f";
 disposes on unmount/url change. `useVRM(url)` is the hook it's built on, if
 you want the loading state without the component.
 
+Not rendering through R3F — or want load progress without a render per event?
+See [section 8](#8-react).
+
 ---
 
 ## 7. Solid
@@ -511,6 +516,58 @@ API reference, SSR notes, a recipe per feature — expressions, brows, visemes,
 gestures, retargeting, baking — and a live demo that runs all of it at once and
 lets you swap the model underneath it.
 
+## 8. React
+
+```tsx
+import { useVRM, useVRMProgress, useFrameLoop } from "@fanoalone/vrm-controller/react";
+
+function Stage({ scene, renderer, camera }) {
+  const vrm = useVRM("/avatar.vrm", { scene }); // Stage does not re-render for this
+
+  useFrameLoop((delta) => {
+    vrm.update(delta); // the same one-call-per-frame rule as everywhere
+    renderer.render(scene, camera);
+  });
+
+  return <LoadingBar vrm={vrm} />;
+}
+
+function LoadingBar({ vrm }) {
+  const progress = useVRMProgress(vrm); // only this re-renders, once per percent
+  return <progress value={progress ?? 0} max={1} />;
+}
+```
+
+For React with **your own renderer, scene, and camera**; it depends on nothing
+but `react`. If you render through React Three Fiber, use the `/r3f` entry above.
+The `/react` entry ships no JSX, so nothing has to transform `dist/`.
+
+The one design rule: **loading, progress, and per-frame work never re-render the
+component that set them up.** `useVRM` returns a stable handle backed by an
+external store, and rendering *from* a value is opt-in, per value — each opt-in
+hook re-renders only for the one thing it reads.
+
+| Primitive | What it does |
+| --- | --- |
+| `useVRM(url, options?)` | Load, attach to a `scene`, dispose on url change / unmount. Returns a stable handle; the caller never re-renders for it. Survives StrictMode without a second download. |
+| `useVRMStatus` / `useVRMAvatar` / `useVRMError` / `useVRMProgress` | Opt-in subscriptions. Progress is quantized to whole percents. |
+| `useVRMEffect(vrm, effect, deps?)` | Build controllers against the loaded avatar with no render in between; re-runs on a model swap, and cleans up *before* the avatar is disposed. |
+| `useVRMUpdate(vrm, fn)` | The per-frame form of `registerUpdate` — follows the avatar across swaps. |
+| `useFrameLoop(cb, options?)` | The rAF loop React doesn't come with. Seconds, not ms; clamped delta; pausable; stable controller. |
+| `Vrm` | Declarative mount. Renders nothing to the DOM; callbacks arrive by subscription, not state. |
+
+Everything in sections 1–6 works from React the same way it does from Solid:
+build the controller in `useVRMEffect`, hold it in a ref, and let state be the
+source of truth so a model swap re-applies every control.
+
+```tsx
+useVRMEffect(vrm, () => void face.current?.emotion.setExclusive(mood), [mood]);
+```
+
+See [`docs/react-example/`](./docs/react-example/react-example.md) for the full
+API reference, SSR and StrictMode notes, a recipe per feature, and a live demo
+with a render counter on screen — so you can watch what does and doesn't render.
+
 ## Development
 
 ```bash
@@ -529,7 +586,11 @@ reimplementation of it. The Solid tests stub `loadVRM`, `requestAnimationFrame`
 and `window`/`document`, but run **real** Solid reactivity — which is why
 `vitest.config.ts` pins `resolve.conditions` to `["browser", "development"]`:
 under Node's own resolution `solid-js` serves its SSR build, where every
-reactive primitive is an inert stub and the tests would silently pass nothing. Nothing renders, so the live `docs/*-example/*.html`
+reactive primitive is an inert stub and the tests would silently pass nothing.
+The React tests mount real components with `react-dom` under `happy-dom`
+(selected per file by a `// @vitest-environment` docblock) and **count renders**
+— that is the contract the entry is built on — while the store and frame-loop
+logic underneath is tested with no React at all. Nothing renders, so the live `docs/*-example/*.html`
 demos are how you actually see any of this on screen (`bunx serve .`, then open
 the demo you want).
 

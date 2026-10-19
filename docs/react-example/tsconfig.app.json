@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "allowArbitraryExtensions": true,
+    "skipLibCheck": true,
+
+    /* The package is the repo two folders up. In your own app these paths go
+       away and `bun add @fanoalone/vrm-controller` resolves it. `three` and
+       three-vrm are pinned to THIS folder's copy, so the types the built
+       package's .d.ts files refer to and the ones this app imports are the same
+       declarations — two copies of a class with private members don't match. */
+    "paths": {
+      "@fanoalone/vrm-controller": ["../../dist/index.d.ts"],
+      "@fanoalone/vrm-controller/react": ["../../dist/react.d.ts"],
+      "three": ["./node_modules/@types/three"],
+      "three/addons/*": ["./node_modules/@types/three/examples/jsm/*"],
+      "@pixiv/three-vrm": ["./node_modules/@pixiv/three-vrm"]
+    },
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fano VRM Controller — React Example</title>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #111;
+        font-family:
+          Inter,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      #canvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+
+      #panel {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 10;
+        width: 360px;
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.72);
+        color: white;
+        backdrop-filter: blur(12px);
+      }
+
+      #panel h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+
+      #status {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      #error {
+        margin: 10px 0 0;
+        color: #ff6b6b;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+
+      .section {
+        margin-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        padding-top: 12px;
+      }
+
+      .section > h2 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.55);
+      }
+
+      .hint {
+        margin: 0 0 8px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      button {
+        padding: 6px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.12);
+        color: white;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      button.active {
+        border-color: #7dd3fc;
+        background: rgba(125, 211, 252, 0.22);
+      }
+
+      label.toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        font-size: 13px;
+      }
+
+      #progress-bar {
+        height: 4px;
+        margin-top: 8px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+
+      #progress-fill {
+        height: 100%;
+        background: #7dd3fc;
+        transition: width 0.1s linear;
+      }
+
+      code {
+        font-size: 11px;
+        color: #7dd3fc;
+      }
+
+      /* The render counter is the point of this demo: every number here is
+         written straight to the DOM, never through React state, so watching it
+         can't perturb what it measures. */
+      #counters {
+        margin: 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.45);
+        color: rgba(255, 255, 255, 0.85);
+        font:
+          12px/1.7 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        font-variant-numeric: tabular-nums;
+        white-space: pre;
+      }
+    </style>
+
+    <!--
+      Import map points bare specifiers at the repo's node_modules, and the
+      built package at ../../dist. Serve the repo root (`bunx serve .`) and
+      open /docs/react-example/react-example.html.
+
+      React is the one thing NOT served locally: the copy in node_modules is
+      CommonJS, which a browser can't load without a bundler, and this demo
+      deliberately has none. esm.sh serves it as ES modules, so you need a
+      network connection for react, react-dom and htm.
+
+      `?external=react` keeps react-dom's own `import "react"` bare, so it
+      resolves through this same map — one copy of React for react-dom AND for
+      dist/react.js. Two copies would break hooks.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../../node_modules/three/build/three.module.js",
+          "three/addons/": "../../node_modules/three/examples/jsm/",
+          "@pixiv/three-vrm": "../../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
+          "react": "https://esm.sh/react@19.2.7",
+          "react-dom/client": "https://esm.sh/react-dom@19.2.7/client?external=react",
+          "htm": "https://esm.sh/htm@3.1.1"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="root"></div>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import React, { memo, useEffect, useRef, useState } from "react";
+      import { createRoot } from "react-dom/client";
+      import htm from "htm";
+
+      // IMPORTANT: run `bun run build` first — this imports the built package.
+      // Everything here except the React hooks is framework-agnostic and comes
+      // from the ROOT entry: React supplies lifecycle, not features.
+      import {
+        EMOTION_PRESETS,
+        createVRMFace,
+        createIdleAnimator,
+        createLookAtAnimator,
+        createProceduralAnimator,
+      } from "../../dist/index.js";
+      import {
+        useVRM,
+        useVRMStatus,
+        useVRMProgress,
+        useVRMError,
+        useVRMEffect,
+        useFrameLoop,
+        Vrm,
+      } from "../../dist/react.js";
+
+      // No build step means no JSX, so `htm` stands in for it: html`<${Foo} />`
+      // is <Foo />. It compiles to React.createElement and nothing else.
+      const html = htm.bind(React.createElement);
+
+      const MODELS = [
+        { label: "avatar.vrm", url: "../../avatar.vrm" },
+        // A different url string for the same file: forces a real swap (and a
+        // disposal of the previous avatar) without needing a second model.
+        { label: "avatar.vrm (copy)", url: "../../avatar.vrm?copy=1" },
+        { label: "missing.vrm (404)", url: "../../missing.vrm" },
+        { label: "nothing", url: null },
+      ];
+
+      // --- Plain three.js scene, exactly as in the other examples ---------
+      // React doesn't render three.js here; it only owns the lifecycle of what
+      // goes *into* this scene. Module scope, so React never sees it: it is not
+      // state, and nothing about it should cause a render.
+
+      const canvas = document.querySelector("#canvas");
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111111);
+
+      const camera = new THREE.PerspectiveCamera(
+        30,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100,
+      );
+      camera.position.set(0, 1.3, 2.6);
+
+      const controls = new OrbitControls(camera, canvas);
+      controls.target.set(0, 1.1, 0);
+      controls.update();
+
+      scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+      const key = new THREE.DirectionalLight(0xffffff, 1.6);
+      key.position.set(1, 2, 2);
+      scene.add(key);
+      scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // --- The render counter ---------------------------------------------
+      // `count(name)` runs during render, which is exactly what we want to
+      // measure. A render with side effects is normally a bug; for a demo
+      // instrument it is the whole trick. (StrictMode is left off here, since it
+      // would double every number.)
+
+      const counters = { Stage: 0, Status: 0, Progress: 0, Controls: 0, frames: 0 };
+      const count = (name) => {
+        counters[name]++;
+      };
+
+      // --- Small React components -----------------------------------------
+      // Each subscribes to ONE thing, and is a leaf, so a change re-renders
+      // only it. `memo` works because the handle's identity never changes.
+
+      const Status = memo(function Status({ vrm }) {
+        count("Status");
+        const status = useVRMStatus(vrm);
+
+        const label = {
+          idle: "Nothing selected",
+          loading: "Loading…",
+          ready: "Ready",
+          error: "Failed",
+        }[status];
+
+        return html`<p id="status">${label}</p>`;
+      });
+
+      const ProgressBar = memo(function ProgressBar({ vrm }) {
+        count("Progress");
+        // Quantized to whole percents by the hook — never one render per chunk.
+        const progress = useVRMProgress(vrm);
+
+        return html`
+          <div id="progress-bar">
+            <div id="progress-fill" style=${{ width: `${(progress ?? 0) * 100}%` }}></div>
+          </div>
+        `;
+      });
+
+      const ErrorLine = memo(function ErrorLine({ vrm }) {
+        const error = useVRMError(vrm);
+        return error ? html`<p id="error">${String(error.message ?? error)}</p>` : null;
+      });
+
+      /**
+       * The numbers are written straight into a <pre> from a timer. Going through
+       * React state to display a render count would make displaying it a render.
+       */
+      const Counters = memo(function Counters() {
+        const pre = useRef(null);
+
+        useEffect(() => {
+          let lastFrames = 0;
+          let lastTime = performance.now();
+
+          const paint = () => {
+            const now = performance.now();
+            const fps = ((counters.frames - lastFrames) * 1000) / (now - lastTime);
+            lastFrames = counters.frames;
+            lastTime = now;
+
+            pre.current.textContent = [
+              `Stage      renders  ${String(counters.Stage).padStart(5)}`,
+              `Status     renders  ${String(counters.Status).padStart(5)}`,
+              `Progress   renders  ${String(counters.Progress).padStart(5)}`,
+              `Controls   renders  ${String(counters.Controls).padStart(5)}`,
+              `frames run          ${String(counters.frames).padStart(5)}  (${fps.toFixed(0)} fps)`,
+            ].join("\n");
+          };
+
+          paint();
+          const id = setInterval(paint, 250);
+          return () => clearInterval(id);
+        }, []);
+
+        return html`<pre id="counters" ref=${pre}></pre>`;
+      });
+
+      // --- A hook the demo writes itself ----------------------------------
+      // The controller is built once per avatar and held in a ref: building it
+      // is not a render, and nothing displays it. `useVRMEffect` is the whole
+      // lifecycle — a new model builds a new face, the old one is reset on the
+      // way out (before the avatar is disposed).
+
+      function useVRMFace(vrm) {
+        const face = useRef(null);
+
+        useVRMEffect(vrm, (avatar) => {
+          const next = createVRMFace(avatar.vrm);
+          face.current = next;
+          const stop = avatar.registerUpdate((delta) => next.update(delta));
+
+          return () => {
+            stop();
+            next.reset();
+            face.current = null;
+          };
+        });
+
+        return face;
+      }
+
+      const FaceControls = memo(function FaceControls({ vrm }) {
+        count("Controls");
+
+        // State lives here, in React; the model is a projection of it. Each
+        // effect depends on the choice AND on the avatar, so swapping models
+        // re-applies every control with no resynchronisation code.
+        const [mood, setMood] = useState("happy");
+        const [blink, setBlink] = useState(true);
+        const [gaze, setGaze] = useState(true);
+
+        const face = useVRMFace(vrm);
+
+        // Declared AFTER useVRMFace on purpose: effects on one handle run in
+        // declaration order, so the face exists by the time these read it.
+        useVRMEffect(vrm, () => void face.current?.emotion.setExclusive(mood), [mood]);
+
+        useVRMEffect(
+          vrm,
+          () => {
+            const current = face.current;
+            if (!current || !blink) return;
+            current.eye.autoBlink();
+            return () => void current.eye.stopAutoBlink();
+          },
+          [blink],
+        );
+
+        useVRMEffect(
+          vrm,
+          () => {
+            const current = face.current;
+            if (!current || !gaze) return;
+            current.eye.gaze(camera);
+            return () => void current.eye.clearGaze();
+          },
+          [gaze],
+        );
+
+        return html`
+          <div className="section">
+            <h2>Face</h2>
+            <p className="hint">
+              <code>mood</code> is React state. The model is an effect of it, so it
+              survives a model swap.
+            </p>
+            <div className="row">
+              ${EMOTION_PRESETS.map(
+                (name) => html`
+                  <button
+                    key=${name}
+                    className=${name === mood ? "active" : ""}
+                    onClick=${() => setMood(name)}
+                  >
+                    ${name}
+                  </button>
+                `,
+              )}
+            </div>
+            <label className="toggle">
+              <input type="checkbox" checked=${blink} onChange=${(e) => setBlink(e.target.checked)} />
+              Auto-blink
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked=${gaze} onChange=${(e) => setGaze(e.target.checked)} />
+              Eyes follow the camera
+            </label>
+          </div>
+        `;
+      });
+
+      const BodyControls = memo(function BodyControls({ vrm }) {
+        count("Controls");
+        const [idle, setIdle] = useState(true);
+
+        // The procedural stack owns the rig while it runs, and its cleanup
+        // hands the rig back (`reset`) BEFORE the avatar is disposed.
+        useVRMEffect(
+          vrm,
+          (avatar) => {
+            if (!idle) return;
+
+            const animator = createProceduralAnimator(avatar.vrm, [
+              createIdleAnimator(),
+              createLookAtAnimator({ target: camera }),
+            ]);
+            const stop = avatar.registerUpdate((delta) => animator.update(delta));
+
+            return () => {
+              stop();
+              animator.reset();
+            };
+          },
+          [idle],
+        );
+
+        return html`
+          <div className="section">
+            <h2>Body</h2>
+            <p className="hint">
+              Procedural idle + look-at, registered through
+              <code>avatar.registerUpdate</code>. No <code>.fbx</code> needed.
+            </p>
+            <label className="toggle">
+              <input type="checkbox" checked=${idle} onChange=${(e) => setIdle(e.target.checked)} />
+              Idle animation
+            </label>
+          </div>
+        `;
+      });
+
+      const LoopControls = memo(function LoopControls({ loop }) {
+        // The loop controller is stable and `running` is a plain read, so the
+        // button keeps its own copy to know what to label itself. Stage never
+        // hears about it — pausing is not a render of anything but this button.
+        const [running, setRunning] = useState(true);
+
+        return html`
+          <div className="section">
+            <h2>Frame loop</h2>
+            <p className="hint">
+              <code>useFrameLoop</code> returns a stable controller. Pausing it
+              re-renders only this button — watch the counters.
+            </p>
+            <button
+              onClick=${() => {
+                if (running) loop.stop();
+                else loop.start();
+                setRunning(!running);
+              }}
+            >
+              ${running ? "Pause" : "Resume"}
+            </button>
+          </div>
+        `;
+      });
+
+      // --- The stage -------------------------------------------------------
+      // The component that calls `useVRM`. It re-renders when ITS OWN inputs
+      // change (the buttons below) — never for loading, progress or frames.
+
+      function Stage() {
+        count("Stage");
+
+        const [source, setSource] = useState(MODELS[0].url);
+        const [keepPrevious, setKeepPrevious] = useState(false);
+        const [secondOn, setSecondOn] = useState(false);
+
+        const vrm = useVRM(source, { scene, keepPrevious });
+        const second = useRef(null);
+
+        // avatar.vrm is VRM 0.x, which faces -Z; turn it to face the camera, as
+        // the other examples do. An effect, not state: nothing needs to render.
+        useVRMEffect(vrm, (avatar) => {
+          avatar.scene.rotation.y = Math.PI;
+        });
+
+        const loop = useFrameLoop((delta) => {
+          counters.frames++;
+          controls.update();
+          vrm.update(delta); // updaters, then vrm.update — in one place
+          second.current?.update(delta); // the <Vrm> below, via its handle
+          renderer.render(scene, camera);
+        });
+
+        return html`
+          <div id="panel">
+            <h1>React Integration</h1>
+            <${Status} vrm=${vrm} />
+            <${ProgressBar} vrm=${vrm} />
+            <${ErrorLine} vrm=${vrm} />
+
+            <div className="section">
+              <h2>Render counters</h2>
+              <${Counters} />
+              <p className="hint" style=${{ marginTop: 8 }}>
+                Load a model, drag the camera, pause the loop. Stage renders only
+                when you press a source button below.
+              </p>
+            </div>
+
+            <div className="section">
+              <h2>Model source</h2>
+              <p className="hint">
+                <code>useVRM(url)</code> reloads when the url changes and disposes
+                the previous avatar.
+              </p>
+              <div className="row">
+                ${MODELS.map(
+                  (model) => html`
+                    <button
+                      key=${model.label}
+                      className=${model.url === source ? "active" : ""}
+                      onClick=${() => setSource(model.url)}
+                    >
+                      ${model.label}
+                    </button>
+                  `,
+                )}
+                <button onClick=${() => vrm.refetch()}>Retry</button>
+              </div>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked=${keepPrevious}
+                  onChange=${(e) => setKeepPrevious(e.target.checked)}
+                />
+                keepPrevious (hold the old model until the next is ready)
+              </label>
+            </div>
+
+            <${LoopControls} loop=${loop} />
+            <${FaceControls} vrm=${vrm} />
+            <${BodyControls} vrm=${vrm} />
+
+            <div className="section">
+              <h2>Declarative mount</h2>
+              <p className="hint">
+                A second avatar through <code>&lt;Vrm&gt;</code>. Unmounting it
+                disposes the model; its ref is the stable handle.
+              </p>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked=${secondOn}
+                  onChange=${(e) => setSecondOn(e.target.checked)}
+                />
+                Mount a second <code>&lt;Vrm&gt;</code>
+              </label>
+            </div>
+
+            ${secondOn &&
+            html`<${Vrm}
+              ref=${second}
+              url=${MODELS[0].url}
+              scene=${scene}
+              onLoad=${(avatar) => {
+                avatar.scene.position.set(0.9, 0, 0);
+                avatar.scene.rotation.y = Math.PI;
+              }}
+            />`}
+          </div>
+        `;
+      }
+
+      createRoot(document.querySelector("#root")).render(html`<${Stage} />`);
+    </script>
+  </body>
+</html>
