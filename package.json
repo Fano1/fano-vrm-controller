@@ -1,105 +1,105 @@
 {
-	"name": "@fanoalone/vrm-controller",
-	"version": "0.0.3",
-	"description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm, with face control, Mixamo retargeting, and procedural animation.",
-	"author": "Ayush Pradhan",
-	"license": "SEE LICENSE IN LICENSE",
-	"homepage": "https://github.com/Fano1/fano-vrm-controller",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/Fano1/fano-vrm-controller.git"
-	},
-	"bugs": {
-		"url": "https://github.com/Fano1/fano-vrm-controller/issues"
-	},
-	"keywords": [
-		"vrm",
-		"three-vrm",
-		"threejs",
-		"three",
-		"avatar",
-		"vtuber",
-		"animation",
-		"procedural-animation",
-		"mixamo",
-		"lipsync",
-		"solid-js",
-		"solidjs",
-		"fano"
-	],
-	"type": "module",
-	"main": "./dist/index.cjs",
-	"module": "./dist/index.js",
-	"types": "./dist/index.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
-		},
-		"./r3f": {
-			"types": "./dist/r3f.d.ts",
-			"import": "./dist/r3f.js",
-			"require": "./dist/r3f.cjs"
-		},
-		"./react": {
-			"types": "./dist/react.d.ts",
-			"import": "./dist/react.js",
-			"require": "./dist/react.cjs"
-		},
-		"./solid": {
-			"types": "./dist/solid.d.ts",
-			"import": "./dist/solid.js",
-			"require": "./dist/solid.cjs"
-		}
-	},
-	"files": [
-		"dist",
-		"README.md",
-		"LICENSE",
-		"NOTICE"
-	],
-	"sideEffects": false,
-	"scripts": {
-		"build": "tsup",
-		"dev": "tsup --watch",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"prepack": "bun run build"
-	},
-	"peerDependencies": {
-		"@pixiv/three-vrm": "^3.5.4",
-		"@react-three/fiber": ">=8",
-		"react": ">=18",
-		"solid-js": ">=1.8",
-		"three": "^0.184.0"
-	},
-	"peerDependenciesMeta": {
-		"@react-three/fiber": {
-			"optional": true
-		},
-		"react": {
-			"optional": true
-		},
-		"solid-js": {
-			"optional": true
-		}
-	},
-	"devDependencies": {
-		"@pixiv/three-vrm": "^3.5.4",
-		"@react-three/fiber": "^9.0.0",
-		"@types/bun": "latest",
-		"@types/node": "^26.0.0",
-		"@types/react": "^19.0.0",
-		"@types/three": "^0.185.1",
-		"happy-dom": "^21.0.3",
-		"react": "^19.0.0",
-		"react-dom": "19.2.7",
-		"solid-js": "^1.9.14",
-		"three": "^0.184.0",
-		"tsup": "^8.5.1",
-		"typescript": "^6.0.3",
-		"vitest": "^4.1.9"
-	},
-	"private": false
+  "name": "@fanoalone/vrm-controller",
+  "version": "0.0.4",
+  "description": "A simple VRM controller and loader wrapper around @pixiv/three-vrm, with face control, Mixamo retargeting, and procedural animation.",
+  "author": "Ayush Pradhan",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/Fano1/fano-vrm-controller",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fano1/fano-vrm-controller.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fano1/fano-vrm-controller/issues"
+  },
+  "keywords": [
+    "vrm",
+    "three-vrm",
+    "threejs",
+    "three",
+    "avatar",
+    "vtuber",
+    "animation",
+    "procedural-animation",
+    "mixamo",
+    "lipsync",
+    "solid-js",
+    "solidjs",
+    "fano"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./r3f": {
+      "types": "./dist/r3f.d.ts",
+      "import": "./dist/r3f.js",
+      "require": "./dist/r3f.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./solid": {
+      "types": "./dist/solid.d.ts",
+      "import": "./dist/solid.js",
+      "require": "./dist/solid.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepack": "bun run build"
+  },
+  "peerDependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "@react-three/fiber": ">=8",
+    "react": ">=18",
+    "solid-js": ">=1.8",
+    "three": "^0.184.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-three/fiber": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "@react-three/fiber": "^9.0.0",
+    "@types/bun": "latest",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.0.0",
+    "@types/three": "^0.185.1",
+    "happy-dom": "^21.0.3",
+    "react": "^19.0.0",
+    "react-dom": "19.2.7",
+    "solid-js": "^1.9.14",
+    "three": "^0.184.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "private": false
 }
