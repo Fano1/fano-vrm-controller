@@ -1,15 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { useFrameLoop, useVRM, useVRMEffect, Vrm, type VRMHandle } from '@fanoalone/vrm-controller/react'
 import { count, counters } from './counters'
-import {
-  BodyControls,
-  Counters,
-  ErrorLine,
-  FaceControls,
-  LoopControls,
-  ProgressBar,
-  Status,
-} from './panels'
+import { FaceControls } from './FacePanel'
+import { JiggleControls } from './JigglePanel'
+import { Counters, ErrorLine, LoopControls, ProgressBar, Status } from './panels'
+import { BodyControls } from './RigPanel'
+import { Section } from './ui'
 import { world } from './world'
 
 const MODELS: { label: string; url: string | null }[] = [
@@ -69,20 +65,23 @@ export default function App() {
         <ProgressBar vrm={vrm} />
         <ErrorLine vrm={vrm} />
 
-        <div className="section">
-          <h2>Render counters</h2>
+        <Section title="Render counters" open>
           <Counters />
           <p className="hint" style={{ marginTop: 8 }}>
-            Load a model, drag the camera, pause the loop. Stage renders only when you press a
-            source button below.
+            Load a model, drag the camera, pause the loop, scrub any slider. Stage renders only when
+            you press a source button below; a panel renders only when you flip one of ITS toggles.
           </p>
-        </div>
+        </Section>
 
-        <div className="section">
-          <h2>Model source</h2>
-          <p className="hint">
-            <code>useVRM(url)</code> reloads when the url changes and disposes the previous avatar.
-          </p>
+        <Section
+          title="Model source"
+          hint={
+            <>
+              <code>useVRM(url)</code> reloads when the url changes and disposes the previous
+              avatar.
+            </>
+          }
+        >
           <div className="row">
             {MODELS.map((model) => (
               <button
@@ -103,18 +102,22 @@ export default function App() {
             />
             keepPrevious (hold the old model until the next is ready)
           </label>
-        </div>
+        </Section>
 
         <LoopControls loop={loop} />
-        <FaceControls vrm={vrm} />
         <BodyControls vrm={vrm} />
+        <JiggleControls vrm={vrm} />
+        <FaceControls vrm={vrm} />
 
-        <div className="section">
-          <h2>Declarative mount</h2>
-          <p className="hint">
-            A second avatar through <code>&lt;Vrm&gt;</code>. Unmounting it disposes the model; its
-            ref is the stable handle.
-          </p>
+        <Section
+          title="Declarative mount"
+          hint={
+            <>
+              A second avatar through <code>&lt;Vrm&gt;</code>. Unmounting it disposes the model;
+              its ref is the stable handle.
+            </>
+          }
+        >
           <label className="toggle">
             <input
               type="checkbox"
@@ -123,7 +126,7 @@ export default function App() {
             />
             Mount a second <code>&lt;Vrm&gt;</code>
           </label>
-        </div>
+        </Section>
 
         {secondOn && (
           <Vrm

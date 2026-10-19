@@ -51,17 +51,19 @@ It's the whole package on one page:
 | Model source | Reactive url, file picker, `keepPrevious`, disposal |
 | Frame loop | `createFrameLoop`, pause/resume, fps |
 | Body driver | The four mutually exclusive rig owners, and the handover between them |
-| ⤷ Procedural | Idle and look-at as togglable layers, gestures, bake-to-clip |
-| ⤷ Mixamo clip | Retarget on demand, crossfade between clips |
+| ⤷ Procedural | Each idle layer (breathing, weight shift, wander, hip bob) and look-at as its own toggle, gestures with a speed slider, bake-to-clip |
+| ⤷ Mixamo clip | Retarget on demand, crossfade between clips, playback speed |
 | ⤷ Manual pose | `createVRMBody` — per-joint degree sliders, snapshot/restore |
-| Face | Emotions, brows, auto-blink, gaze, manual eyelid |
+| Face | Emotions with an intensity slider, brows with a weight slider, auto-blink, gaze, manual eyelid and left/right wink, manual gaze angles |
 | Visemes | Five vowel sliders, plus a simulated speech stream |
+| Jiggle physics | Master switch, a bouncing/shaking avatar to drive it, zones, intensity / ambient / smoothing |
+| Jiggle — one bone | Any humanoid bone or model node, every option as a slider, pokes, a live per-bone angle readout |
 | Declarative mount | A second avatar through the `Vrm` component |
 
 The thing worth watching: **swap the model while everything is running.** Every
 control re-applies itself to the new avatar — the emotion you picked, the
-gesture that was playing, the joints you posed — without a line of
-resynchronisation code. That falls out of the pattern in
+gesture that was playing, the joints you posed, which bones jiggle and how
+each is tuned — without a line of resynchronisation code. That falls out of the pattern in
 [Driving the rest of the package](#driving-the-rest-of-the-package).
 
 The demo has **no build step**, so it wires the panel to the DOM by hand
@@ -277,7 +279,7 @@ scheduled before the callback runs.
 
 ---
 
-## 3. `createVRMUpdate(avatar, fn)`
+## 3. `createVRMUpdate(avatar, fn, options?)`
 
 The reactive form of `avatar.registerUpdate(fn)` — the one seam every feature
 in this package hooks into. Callbacks registered this way run each frame
@@ -299,6 +301,25 @@ change and unregisters on cleanup.
 
 It accepts an accessor or a plain avatar, so it works just as well inside an
 `onLoad` handler as against `createVRM`.
+
+### `options.order`
+
+Callbacks run in registration order by default. When something has to run on
+top of the rig's animation, give it an `order` — lower runs first, ties keep
+registration order, default `0`:
+
+```ts
+createVRMUpdate(vrm.avatar, (delta) => jiggle()?.update(delta), {
+  order: JIGGLE_UPDATE_ORDER, // 100 — after every default-order driver
+});
+```
+
+It is read when the registration is made, so it isn't reactive: a signal passed
+as `order` is not tracked. Register once with the order you mean.
+
+In a demo with a single dispatching driver, registration order happens to work.
+The moment a driver registers *later* — a component that mounts its own, a mode
+that re-registers on switch — only an explicit order keeps a post-process on top.
 
 ---
 
@@ -623,6 +644,10 @@ the rest pose, so without the `resetPose()` the avatar freezes mid-dance.
 Face control sits outside all of this. Expression weights and bone poses never
 overlap, so auto-blink, gaze, emotions and visemes run in every mode.
 
+Jiggle physics sits outside it too, for a different reason: it owns no bones. It
+adds a small lean on top of whatever the active mode wrote, so it runs in every
+mode and needs no handover — see [Jiggle physics](#jiggle-physics).
+
 ### Mixamo clips
 
 Two pieces: a mixer that belongs to the current rig, and a clip retargeted onto
@@ -775,6 +800,102 @@ Baking is reproducible — nothing in the signal library calls `Math.random()`,
 the animator is reset before sampling, and the timestep is fixed — so this is
 safe to do at build time and ship the clip instead, if you'd rather.
 
+### Jiggle physics
+
+Jiggle follows the same three ideas as everything else: a memo builds the
+controller per model, `createVRMUpdate` runs it, and **the state is a signal**
+that an effect projects onto the model.
+
+```ts
+import { createVRMJiggle, JIGGLE_UPDATE_ORDER, JIGGLE_ZONES } from "@fanoalone/vrm-controller";
+
+const [jiggleOn, setJiggleOn] = createSignal(true);
+const [jiggleBones, setJiggleBones] = createSignal<ReadonlySet<string>>(
+  new Set([...JIGGLE_ZONES.chest, ...JIGGLE_ZONES.hips]),
+);
+const [tuning, setTuning] = createSignal<Record<string, JiggleBoneOptions>>({});
+
+// 1. A controller per model, built empty — the effects below fill it in.
+const jiggle = createMemo(() => {
+  const avatar = vrm.avatar();
+  return avatar ? createVRMJiggle(avatar.vrm, { zones: [] }) : null;
+});
+
+// 2. Run it LAST, whatever else registers and whenever.
+createVRMUpdate(vrm.avatar, (delta) => jiggle()?.update(delta), {
+  order: JIGGLE_UPDATE_ORDER,
+});
+
+// 3. The controller is a projection of the signals.
+createEffect(() => {
+  const current = jiggle();
+  if (current) current.enabled = jiggleOn();
+});
+
+createEffect(() => {
+  const current = jiggle();
+  if (!current) return;
+
+  const bones = jiggleBones();
+  const options = tuning();
+
+  for (const target of current.list()) if (!bones.has(target)) current.disable(target);
+  for (const target of bones) current.enable(target, options[target]);
+});
+```
+
+Two details make the second effect safe to re-run on every slider tick:
+
+- **`enable()` on a bone that is already on retunes it** and keeps its spring
+  moving, so a slider drags smoothly rather than restarting the wobble.
+- Because the effect depends on `jiggle()` as well as the signals, a **model swap
+  re-applies every bone and every tuning value** to the new controller.
+
+Dropping a bone's overrides is the one thing re-running can't do — the
+controller has merged them already. To reset a bone, `disable()` it first and let
+the effect turn it back on with its defaults (the demo's *Reset this bone*
+button).
+
+Bone sliders should show what the controller **resolved** (a preset, or the
+node's own axis), not what you stored, so read `jiggle().getOptions(target)`
+after the effect has applied — the demo syncs them inside the same effect.
+
+To give it something to react to, the demo moves the whole avatar:
+
+```ts
+createEffect(() => {
+  const avatar = vrm.avatar();
+  if (!avatar || jiggleMotion() === "none") return;
+
+  const home = avatar.scene.position.clone();
+  let time = 0;
+
+  onCleanup(
+    avatar.registerUpdate((delta) => {
+      time += delta;
+      // |sin| lands hard at the bottom of every hop — that's the spike in
+      // acceleration the soft mass lags behind.
+      avatar.scene.position.y = home.y + Math.abs(Math.sin(time * Math.PI * 1.4)) * 0.12;
+    }),
+  );
+  onCleanup(() => avatar.scene.position.copy(home));
+});
+```
+
+`jiggle.attach(avatar)` does the registration in step 2 for you, in a plain
+effect, and its returned function also takes the nudges off the rig:
+
+```ts
+createEffect(() => {
+  const avatar = vrm.avatar();
+  const current = jiggle();
+  if (avatar && current) onCleanup(current.attach(avatar));
+});
+```
+
+See [`../jiggle-example/jiggle-example.md`](../jiggle-example/jiggle-example.md)
+for the physics, every option, and the guards.
+
 ## A complete component
 
 ```tsx
@@ -859,6 +980,9 @@ where you use it.
 *and* `vrm.update`. Once per frame, in one place — the frame loop. If you
 register a driver with `createVRMUpdate`, don't also call it yourself.
 
+**Order is not reactive.** `createVRMUpdate(avatar, fn, { order })` reads `order`
+once, when it registers. To change where a callback runs, register it again.
+
 **`avatar()` is `null`, `resource()` is `undefined`.** Same load, different
 absent-value conventions: the plain accessor is deliberately nullable, and the
 resource follows Solid's own.
@@ -894,7 +1018,7 @@ points at `dist/solid.js` for the same reason.
 | --- | --- |
 | `createVRM` | `(url: MaybeAccessor<VRMSource>, options?: CreateVRMOptions) => VRMResource` |
 | `createFrameLoop` | `(callback: (delta: number, elapsed: number) => void, options?: CreateFrameLoopOptions) => FrameLoop` |
-| `createVRMUpdate` | `(avatar: MaybeAccessor<VRMAvatar \| null \| undefined>, fn: (delta: number) => void) => void` |
+| `createVRMUpdate` | `(avatar: MaybeAccessor<VRMAvatar \| null \| undefined>, fn: (delta: number) => void, options?: { order?: number }) => void` |
 | `Vrm` | `(props: VrmProps) => JSX.Element` |
 | `access` | `<T>(value: MaybeAccessor<T>) => T` |
 
@@ -908,3 +1032,4 @@ Types: `MaybeAccessor`, `VRMSource`, `CreateVRMOptions`, `VRMResource`,
 - The loader and the `registerUpdate` seam — [`../loader-example/loader-example.md`](../loader-example/loader-example.md)
 - Face control — [`../face-example/face-example.md`](../face-example/face-example.md)
 - Procedural animation — [`../procedural-example/procedural-example.md`](../procedural-example/procedural-example.md)
+- Jiggle physics — [`../jiggle-example/jiggle-example.md`](../jiggle-example/jiggle-example.md)

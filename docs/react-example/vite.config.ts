@@ -6,22 +6,40 @@ import { defineConfig, type Plugin } from 'vite'
 const repo = path.resolve(import.meta.dirname, '../..')
 
 /**
- * `avatar.vrm` lives (gitignored) at the repo root, like every other example.
- * Serve it at `/avatar.vrm` so the app can load it with a plain url.
+ * Stream `file` with a Content-Length. Without a length the loader reports
+ * `total = 0` and the progress bar can never move.
  */
-function serveAvatar(): Plugin {
-  const file = path.join(repo, 'avatar.vrm')
+function send(res: import('node:http').ServerResponse, file: string, type: string) {
+  res.setHeader('Content-Type', type)
+  res.setHeader('Content-Length', statSync(file).size)
+  createReadStream(file).pipe(res)
+}
+
+/**
+ * `avatar.vrm` and the Mixamo clips in `animation/` live at the repo root (the
+ * avatar is gitignored), like every other example. Serve them at `/avatar.vrm`
+ * and `/animation/<name>.fbx` so the app can load them with plain urls.
+ */
+function serveRepoAssets(): Plugin {
+  const avatar = path.join(repo, 'avatar.vrm')
+  const animations = path.join(repo, 'animation')
 
   return {
-    name: 'serve-avatar',
+    name: 'serve-repo-assets',
     configureServer(server) {
       server.middlewares.use('/avatar.vrm', (_req, res, next) => {
-        if (!existsSync(file)) return next()
-        res.setHeader('Content-Type', 'model/gltf-binary')
-        // Without a length the loader reports `total = 0` and the progress bar
-        // can never move.
-        res.setHeader('Content-Length', statSync(file).size)
-        createReadStream(file).pipe(res)
+        if (!existsSync(avatar)) return next()
+        send(res, avatar, 'model/gltf-binary')
+      })
+
+      server.middlewares.use('/animation', (req, res, next) => {
+        // `req.url` is relative to the mount point, and url-encoded ("Macarena%20Dance").
+        const name = decodeURIComponent((req.url ?? '').split('?')[0]!).replace(/^\/+/, '')
+        const file = path.resolve(animations, name)
+
+        // Only files directly inside animation/ — never a path that climbs out.
+        if (path.dirname(file) !== animations || !existsSync(file)) return next()
+        send(res, file, 'application/octet-stream')
       })
     },
   }
@@ -29,7 +47,7 @@ function serveAvatar(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), serveAvatar()],
+  plugins: [react(), serveRepoAssets()],
 
   resolve: {
     // In your own app this is just `bun add @fanoalone/vrm-controller`. Here the

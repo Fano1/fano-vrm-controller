@@ -38,17 +38,19 @@ function LoadingBar({ vrm }: { vrm: VRMHandle }) {
 frames a second, and `Stage` is not involved in any of it. `LoadingBar`
 re-renders because it asked to.
 
-There are two live demos of the same app — a Vite + React + TypeScript project
-in this folder, and a no-build page, [`react-example.html`](./react-example.html).
-Both have a render counter on screen, so you can watch the claim above instead of
-taking it on trust.
+There are two live demos — a Vite + React + TypeScript app in this folder that
+exercises everything (per-bone posing, Mixamo clips, gestures, visemes, brows,
+jiggle physics), and a smaller no-build page,
+[`react-example.html`](./react-example.html). Both have a render counter on
+screen, so you can watch the claim above instead of taking it on trust.
 
 ---
 
 ## Running the demo
 
-The same demo lives here twice. Put a model named `avatar.vrm` in the repo root
-(it's gitignored) — same layout as the other examples. No `.fbx` is needed.
+Put a model named `avatar.vrm` in the repo root — same layout as the other
+examples. The Mixamo clips in the Vite app come from the `animation/` folder next
+to it; everything else works without any `.fbx`.
 
 ### The Vite app
 
@@ -67,11 +69,33 @@ bun run build          # tsc -b && vite build: type-checks the app against dist/
 | File | What's in it |
 | --- | --- |
 | [`src/App.tsx`](./src/App.tsx) | `App`, the one component that calls `useVRM` and `useFrameLoop` |
-| [`src/panels.tsx`](./src/panels.tsx) | The leaf components, each subscribing to one thing — status, progress, error, face, body, loop |
-| [`src/useVRMFace.ts`](./src/useVRMFace.ts) | The [face hook](#a-face-hook) recipe |
+| [`src/panels.tsx`](./src/panels.tsx) | The leaf components that subscribe to one thing — status, progress, error, the counters, the loop |
+| [`src/RigPanel.tsx`](./src/RigPanel.tsx) | **Body** — [one rig, one owner](#one-rig-one-owner): procedural idle + gestures, Mixamo clips, manual per-bone pose |
+| [`src/JigglePanel.tsx`](./src/JigglePanel.tsx) | **Jiggle physics** — zones, a per-bone editor, pokes, a live readout |
+| [`src/FacePanel.tsx`](./src/FacePanel.tsx) | **Face** — mood, eyelids, gaze, visemes (with a simulated speech stream), brows |
+| [`src/ui.tsx`](./src/ui.tsx) | `Section`, `Toggle`, `Slider`, and [`PerAvatar`](#sliders-that-dont-render) |
+| [`src/useVRMFace.ts`](./src/useVRMFace.ts), [`src/useVRMBody.ts`](./src/useVRMBody.ts) | The [face hook](#a-face-hook) recipe, and its `VRMBody` twin |
+| [`src/gestures.ts`](./src/gestures.ts) | The gesture keyframes and the clip list |
 | [`src/world.ts`](./src/world.ts) | The three.js scene, camera and renderer — module scope, not React state |
 | [`src/counters.ts`](./src/counters.ts) | The render counter |
-| [`vite.config.ts`](./vite.config.ts) | How a local checkout of the package is wired in |
+| [`vite.config.ts`](./vite.config.ts) | How a local checkout of the package is wired in, and the middleware that serves `avatar.vrm` and `animation/*.fbx` |
+
+What the Vite app exercises:
+
+| Section | Exercises |
+| --- | --- |
+| Render counters | Per-panel render counts, written straight to the DOM so watching can't perturb them |
+| Model source | `useVRM` url changes, `keepPrevious`, `refetch`, the error state, a falsy source |
+| Frame loop | `useFrameLoop`'s stable controller — pausing re-renders only the button |
+| Body | One owner at a time — **Procedural** (idle layers, look-at, gestures), **Mixamo clip** (four `.fbx` plus a baked idle, playback speed), **Manual pose** (any bone, X/Y/Z), or **None** |
+| Jiggle physics | A bouncing or shaking avatar, zones, intensity / ambient / smoothing, and a per-bone editor over every humanoid bone and model node |
+| Face — mood & eyes | `useVRMEffect` with deps: mood and intensity, auto-blink, gaze — all re-applied after a model swap — plus manual eyelids, winks and gaze angles |
+| Face — mouth & brows | Five vowel sliders, a simulated speech stream, brow shapes and weight |
+| Declarative mount | A second avatar through `<Vrm>`, its `ref`, and unmount-disposes |
+
+Every panel is a `<details>`; the counters tell you which ones rendered. **Drag
+any slider:** no counter moves. **Flip a toggle in one panel:** only that panel's
+counter does.
 
 Add **`?strict`** to the url to turn on `<StrictMode>`. The render counters
 double (StrictMode renders everything twice in development — that is why it is
@@ -99,6 +123,8 @@ load without a bundler, and the demo deliberately has none. The import map loads
 `react`, `react-dom` and `htm` as ES modules from esm.sh instead. (`htm` stands
 in for JSX — ``html`<${Foo} />` `` is `<Foo />`, and it compiles to nothing but
 `React.createElement`.)
+
+The no-build page is the original, smaller demo:
 
 | Section | Exercises |
 | --- | --- |
@@ -399,7 +425,7 @@ free — the expression, the toggles, the posed joints. That is what the demo
 shows when you swap models with a mood picked.
 
 Only two kinds of thing don't fit the rule: per-frame work (that's
-[`useVRMUpdate`](#4-usevrmupdatehandle-fn)) and genuine one-shot events like
+[`useVRMUpdate`](#4-usevrmupdatehandle-fn-options)) and genuine one-shot events like
 "bake a clip now".
 
 ### Order
@@ -419,7 +445,7 @@ rebuilt before the effects below it re-run.
 
 ---
 
-## 4. `useVRMUpdate(handle, fn)`
+## 4. `useVRMUpdate(handle, fn, options?)`
 
 Run `fn` every frame against the current avatar. **Never causes a render.**
 
@@ -436,6 +462,20 @@ left bound to a disposed rig.
 
 `fn` is called through a ref. An inline closure that captures fresh props or state
 each render is always current and never re-registers.
+
+### `options.order`
+
+Drivers run in registration order by default, and **in React that is not an order
+you control**: an effect that re-runs — a mode switch, a changed dependency —
+unregisters and registers again, *after* anything that was already in place. Pass
+an `order` (lower runs first, default `0`) to say where a callback belongs:
+
+```tsx
+useVRMUpdate(vrm, (delta, avatar) => jiggle.current?.update(delta), { order: 100 });
+```
+
+It is read when the registration is made, so changing it re-registers. Only the
+number matters — an inline `{ order: 100 }` each render does not re-register.
 
 If you only need one function per frame and you already own the frame loop, you
 can call it from there; `useVRMUpdate` is for work that belongs to the *avatar's*
@@ -558,6 +598,7 @@ framework-agnostic — they come from the root entry and are built from
 | Procedural | `createProceduralAnimator` | One effect that registers the animator and resets it on cleanup |
 | Gestures | `createGestureAnimator` | State → effect calling `play` / `stop` |
 | Baking | `bakeAnimator` | A plain function call. No React involved |
+| Jiggle physics | `createVRMJiggle` | One effect that builds it and calls `attach(avatar)`; state → effect over the bone set |
 
 ### A face hook
 
@@ -615,6 +656,34 @@ as **one mode**, not three independent toggles — and let the effect for each m
 hand the rig over in its cleanup (the demo's body effect calls `animator.reset()`).
 Face control is unaffected either way and runs in every mode.
 
+In React the mode falls straight out of the component tree. Make each mode a
+component, and render exactly one:
+
+```tsx
+function BodyControls({ vrm }: { vrm: VRMHandle }) {
+  const [mode, setMode] = useState<"procedural" | "clip" | "pose" | "none">("procedural");
+
+  return (
+    <>
+      {/* …the mode buttons… */}
+      {mode === "procedural" && <ProceduralMode vrm={vrm} />}
+      {mode === "clip" && <ClipMode vrm={vrm} />}
+      {mode === "pose" && <PoseMode vrm={vrm} />}
+    </>
+  );
+}
+```
+
+While a mode is mounted, its `useVRMEffect`s own the rig. Unmounting it runs
+their cleanups, which hand the rig back (`animator.reset()`, `stopAllAction()` +
+`resetPose()`) — and React runs **every** cleanup in a commit before **any**
+setup, so the old owner has let go before the new one starts. No "is something
+else running?" bookkeeping. This is [`src/RigPanel.tsx`](./src/RigPanel.tsx).
+
+Jiggle physics is the exception, and on purpose: it owns no bones. It adds a small
+lean on top of whichever mode is active, so it lives outside this tree — see
+[Jiggle physics](#jiggle-physics).
+
 ### Procedural animation
 
 ```tsx
@@ -666,6 +735,116 @@ useVRMEffect(
 
 Clips are keyed on the avatar *and* the url: a new rig invalidates whatever was
 playing on the old one, and a new url replaces the mixer for the same rig.
+
+### Jiggle physics
+
+`createVRMJiggle` is a layer, not a driver: each frame it takes whatever the rig's
+pose is, undoes its own previous nudge, and adds a fresh one. It composes with a
+procedural idle, a Mixamo clip, or a pose you are dragging, without knowing which.
+Because it adds *on top*, it has to run **after** them — and as the section above
+says, effect order is not yours to control. `attach` registers it with a late
+`order`, so it stays last however the drivers are re-registered:
+
+```tsx
+function JiggleControls({ vrm }: { vrm: VRMHandle }) {
+  const jiggle = useRef<VRMJiggle | null>(null);
+  const [on, setOn] = useState(true);
+
+  // One controller per avatar. The cleanup detaches AND takes every nudge off the
+  // rig, before the avatar is disposed.
+  useVRMEffect(vrm, (avatar) => {
+    const next = createVRMJiggle(avatar.vrm, { zones: ["chest", "hips"] });
+    const detach = next.attach(avatar);
+    jiggle.current = next;
+
+    return () => {
+      detach();
+      next.dispose();
+      jiggle.current = null;
+    };
+  });
+
+  useVRMEffect(vrm, () => void (jiggle.current && (jiggle.current.enabled = on)), [on]);
+
+  // …
+}
+```
+
+Try it in the demo: switch the **Body** mode while the avatar bounces. The driver is
+torn down and re-registered each time, *after* the jiggle — and the jiggle keeps
+working, because it asked to run last.
+
+Which bones jiggle is a choice, so it is state, and the controller is a projection
+of it. Apply a change **in the handler** as well as in an effect: a slider that
+mounts in the same render reads the controller, and an effect would run after it.
+One idempotent function does both:
+
+```tsx
+function project(controller: VRMJiggle, bones: ReadonlySet<string>) {
+  for (const target of controller.list()) if (!bones.has(target)) controller.disable(target);
+  for (const target of bones) if (!controller.isEnabled(target)) controller.enable(target);
+}
+
+const choose = (next: ReadonlySet<string>) => {
+  setBones(next);
+  if (jiggle.current) project(jiggle.current, next); // now, for what renders next
+};
+
+useVRMEffect(vrm, () => void (jiggle.current && project(jiggle.current, bones)), [bones]); // and for a new model
+```
+
+For a bone that isn't a humanoid one — a bust bone, a tail — offer
+`listJiggleCandidates(avatar.vrm)` and pass the node's name to `enable()`.
+[`src/JigglePanel.tsx`](./src/JigglePanel.tsx) is the whole thing, with a per-bone
+editor, pokes, and a live angle readout. See
+[`../jiggle-example/jiggle-example.md`](../jiggle-example/jiggle-example.md).
+
+### Sliders that don't render
+
+A panel with thirty sliders should not render thirty times a second. Give each
+slider its **own** state and send the value straight to the model — not through
+the panel's state:
+
+```tsx
+function Slider({ label, min, max, initial, onChange }: SliderProps) {
+  const [value, setValue] = useState(initial); // `initial` may be a function: read once, on mount
+
+  return (
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={0.01}
+      value={value}
+      onChange={(e) => {
+        const next = Number(e.target.value);
+        setValue(next); // re-renders THIS slider
+        onChange(next); // …and writes to the model. Not the panel.
+      }}
+    />
+  );
+}
+
+<Slider label="aa" min={0} max={1} initial={0} onChange={(w) => face.current?.viseme.set("aa", w)} />
+```
+
+Two things follow. A slider that should show the model's *current* value starts
+from a lazy `initial` (`() => body.current?.getEulerDegrees(bone)?.x ?? 0`), and a
+`key` starts it over — change it when the thing it edits changes (`${bone}:${version}`).
+
+A slider you were *scrubbing* is a reading of the old model, and the next one starts
+neutral. Wrap those in a component that remounts for each new avatar:
+
+```tsx
+function PerAvatar({ vrm, children }: { vrm: VRMHandle; children: ReactNode }) {
+  const avatar = useVRMAvatar(vrm); // re-renders only when the avatar does
+  return <Fragment key={avatar?.scene.uuid ?? "none"}>{children}</Fragment>;
+}
+```
+
+That is the line between the two kinds of control: a **choice** (a mood, a toggle,
+which bones jiggle) is state, and an effect re-applies it to the next model; a
+**scrub** (a viseme, a joint angle) belongs to the model it was dragged on.
 
 ---
 
@@ -781,6 +960,17 @@ that named it. Revoke only after the load settles.
 **One rig, one owner.** A mixer, a procedural animator and manual posing never run
 together. See [One rig, one owner](#one-rig-one-owner).
 
+**Anything that layers on top needs an `order`.** Jiggle, or any post-process that
+adds to what a driver wrote, must run after it. An effect that re-runs re-registers
+*later*, so registration order will eventually put the driver on top and the layer
+silently does nothing. Use `jiggle.attach(avatar)`, or
+`useVRMUpdate(vrm, fn, { order })`. See [`options.order`](#optionsorder).
+
+**An async effect can be cleaned up before it finishes.** A Mixamo clip loads after
+the effect ran; by the time it lands the mode, the clip, or the whole model may have
+changed. Keep a `cancelled` flag and check it before starting playback (the demo's
+`ClipMode` does).
+
 **Two copies of React break hooks.** If you bundle this package alongside your
 app, make sure `react` resolves to a single copy. The demo's import map does this
 with `?external=react`.
@@ -795,7 +985,7 @@ with `?external=react`.
 | `useVRMError` | `(handle: VRMHandle) => unknown` |
 | `useVRMProgress` | `(handle: VRMHandle) => number \| null` |
 | `useVRMEffect` | `(handle: VRMHandle, effect: (avatar: VRMAvatar) => void \| (() => void), deps?: DependencyList) => void` |
-| `useVRMUpdate` | `(handle: VRMHandle, fn: (delta: number, avatar: VRMAvatar) => void) => void` |
+| `useVRMUpdate` | `(handle: VRMHandle, fn: (delta: number, avatar: VRMAvatar) => void, options?: { order?: number }) => void` |
 | `useFrameLoop` | `(callback: (delta: number, elapsed: number) => void, options?: UseFrameLoopOptions) => FrameLoop` |
 | `Vrm` | `ForwardRefExoticComponent<VrmProps & RefAttributes<VRMHandle>>` |
 
@@ -810,4 +1000,5 @@ Types: `VRMSource`, `VRMStatus`, `UseVRMOptions`, `VRMHandle`, `FrameLoopCallbac
 - The loader and the `registerUpdate` seam — [`../loader-example/loader-example.md`](../loader-example/loader-example.md)
 - Face control — [`../face-example/face-example.md`](../face-example/face-example.md)
 - Procedural animation — [`../procedural-example/procedural-example.md`](../procedural-example/procedural-example.md)
+- Jiggle physics — [`../jiggle-example/jiggle-example.md`](../jiggle-example/jiggle-example.md)
 - The Solid counterpart of this entry — [`../solid-example/solid-example.md`](../solid-example/solid-example.md)

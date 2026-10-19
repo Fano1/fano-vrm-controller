@@ -20,6 +20,7 @@ import {
 	type VRMAvatar,
 	type VRMLoadProgress,
 	type VRMUpdateFn,
+	type VRMUpdateOptions,
 } from "../core/feature/loader";
 import type {
 	CreateVRMOptions,
@@ -177,10 +178,23 @@ export function createVRM(
  *
  * createVRMUpdate(vrm.avatar, (delta) => face()?.update(delta));
  * ```
+ *
+ * `options.order` places it among the other drivers — lower runs first, default
+ * `0`. A callback that must layer on top of whatever animates the rig (jiggle
+ * physics) passes a high one, so it stays last even when a driver is
+ * re-registered later. It is read when the registration is made, so a signal
+ * passed as `order` is not tracked.
+ *
+ * ```ts
+ * createVRMUpdate(vrm.avatar, (delta) => jiggle()?.update(delta), {
+ *   order: JIGGLE_UPDATE_ORDER,
+ * });
+ * ```
  */
 export function createVRMUpdate(
 	avatar: MaybeAccessor<VRMAvatar | null | undefined>,
 	fn: VRMUpdateFn,
+	options?: VRMUpdateOptions,
 ): void {
 	createEffect(() => {
 		const current = access(avatar);
@@ -188,6 +202,8 @@ export function createVRMUpdate(
 
 		// `untrack` so signals read per-frame inside `fn` can't accidentally
 		// subscribe this effect and re-register the callback mid-flight.
-		onCleanup(current.registerUpdate((delta) => untrack(() => fn(delta))));
+		onCleanup(
+			current.registerUpdate((delta) => untrack(() => fn(delta)), options),
+		);
 	});
 }

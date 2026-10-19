@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal } from "solid-js";
 import * as THREE from "three";
 import type { VRM } from "@pixiv/three-vrm";
 import type { VRMAvatar, VRMUpdateFn } from "../core/feature/loader";
@@ -36,27 +36,35 @@ type FakeAvatar = VRMAvatar & {
 function makeAvatar(url: string): FakeAvatar {
 	const scene = new THREE.Group();
 	scene.name = url;
-	const updaters = new Set<VRMUpdateFn>();
+	// Mirrors the real loader's contract: by `order`, ties in registration order.
+	const updaters: { fn: VRMUpdateFn; order: number }[] = [];
 
 	const avatar: FakeAvatar = {
 		url,
 		disposed: false,
 		vrm: { scene } as unknown as VRM,
 		scene,
-		updaterCount: () => updaters.size,
+		updaterCount: () => updaters.length,
 
-		registerUpdate(fn) {
-			updaters.add(fn);
-			return () => void updaters.delete(fn);
+		registerUpdate(fn, options) {
+			const entry = { fn, order: options?.order ?? 0 };
+			let index = updaters.length;
+			while (index > 0 && updaters[index - 1]!.order > entry.order) index -= 1;
+			updaters.splice(index, 0, entry);
+
+			return () => {
+				const at = updaters.indexOf(entry);
+				if (at >= 0) updaters.splice(at, 1);
+			};
 		},
 
 		update(delta) {
-			for (const fn of updaters) fn(delta);
+			for (const { fn } of [...updaters]) fn(delta);
 		},
 
 		dispose() {
 			avatar.disposed = true;
-			updaters.clear();
+			updaters.length = 0;
 			scene.removeFromParent();
 		},
 	};
@@ -393,6 +401,31 @@ describe("createVRMUpdate", () => {
 		second.update(0.25);
 		expect(seen).toEqual(["/a.vrm:0.5", "/b.vrm:0.25"]);
 
+		dispose();
+	});
+
+	it("places itself among other drivers by `order`, however they register", async () => {
+		const avatar = makeAvatar("/a.vrm");
+		const [driverOn, setDriverOn] = createSignal(false);
+		const order: string[] = [];
+
+		const dispose = createRoot((d) => {
+			createVRMUpdate(avatar, () => order.push("late"), { order: 100 });
+
+			// A driver that is torn down and re-registered after the late one is
+			// already in place — a mode switch does exactly this.
+			createEffect(() => {
+				if (driverOn()) createVRMUpdate(avatar, () => order.push("driver"));
+			});
+			return d;
+		});
+		await settle();
+
+		setDriverOn(true);
+		await settle();
+		avatar.update(0.016);
+
+		expect(order).toEqual(["driver", "late"]);
 		dispose();
 	});
 

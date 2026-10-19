@@ -156,6 +156,15 @@
         width: 100%;
       }
 
+      input[type="range"]:disabled {
+        opacity: 0.4;
+      }
+
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre;
+      }
+
       #progress-bar {
         height: 4px;
         margin-top: 8px;
@@ -271,8 +280,20 @@
         <!-- 3a. Procedural -->
         <div class="subsection" id="pane-procedural">
           <label class="toggle">
-            <input id="toggle-idle" type="checkbox" checked />
-            Idle — breathing, sway, micro-wander
+            <input id="toggle-breathing" type="checkbox" checked />
+            Idle — breathing
+          </label>
+          <label class="toggle">
+            <input id="toggle-sway" type="checkbox" checked />
+            Idle — weight shift
+          </label>
+          <label class="toggle">
+            <input id="toggle-noise" type="checkbox" checked />
+            Idle — head &amp; shoulder wander
+          </label>
+          <label class="toggle">
+            <input id="toggle-bob" type="checkbox" />
+            Idle — hip bob (lifts the feet)
           </label>
           <label class="toggle">
             <input id="toggle-lookat" type="checkbox" checked />
@@ -283,6 +304,7 @@
             over.
           </p>
           <div class="row" id="gesture-row"></div>
+          <div id="gesture-speed"></div>
           <div class="row" style="margin-top: 6px">
             <button id="btn-gesture-stop">Stop gesture</button>
             <button id="btn-bake">Bake idle → clip</button>
@@ -298,6 +320,7 @@
           </p>
           <div class="row" id="clip-row"></div>
           <p class="readout" id="clip-readout">No clip loaded.</p>
+          <div id="clip-speed"></div>
         </div>
 
         <!-- 3c. Manual posing -->
@@ -336,6 +359,7 @@
           to clear.
         </p>
         <div class="row" id="emotion-row"></div>
+        <div id="emotion-weight"></div>
       </div>
 
       <div class="section">
@@ -345,6 +369,7 @@
           is whatever this model ships.
         </p>
         <div class="row" id="brow-row"></div>
+        <div id="brow-weight"></div>
       </div>
 
       <div class="section">
@@ -370,6 +395,12 @@
             value="0"
           />
         </div>
+        <div id="wink-sliders"></div>
+        <p class="hint" style="margin-top: 8px">
+          With gaze off, aim the eyes by hand —
+          <code>eye.setGazeAngles(yaw, pitch)</code>.
+        </p>
+        <div id="gaze-sliders"></div>
       </div>
 
       <div class="section">
@@ -388,7 +419,49 @@
         </div>
       </div>
 
-      <!-- 5. Declarative mount --------------------------------------->
+      <!-- 5. Jiggle physics ------------------------------------------>
+      <div class="section">
+        <h2>Jiggle physics</h2>
+        <p class="hint">
+          A damped spring per bone, driven by how the body actually
+          accelerates. It owns no bones — it layers on whatever the body driver
+          above is doing, and runs last via
+          <code>createVRMUpdate(avatar, fn, { order })</code>.
+        </p>
+        <label class="toggle">
+          <input id="toggle-jiggle" type="checkbox" checked />
+          Jiggle on
+        </label>
+        <p class="hint">Make the body move</p>
+        <div class="row" id="jiggle-motion-row"></div>
+        <p class="hint" style="margin-top: 10px">Zones</p>
+        <div class="row" id="jiggle-zone-row"></div>
+        <div id="jiggle-global-sliders"></div>
+      </div>
+
+      <div class="section">
+        <h2>Jiggle — one bone</h2>
+        <p class="hint">
+          Any humanoid bone, or any other node in the model
+          (<code>listJiggleCandidates</code>). Tuning keeps the spring moving,
+          so dragging a slider is smooth. Every value is a signal, so it
+          survives a model swap.
+        </p>
+        <select id="jiggle-bone"></select>
+        <label class="toggle" style="margin-top: 8px">
+          <input id="toggle-jiggle-bone" type="checkbox" />
+          Jiggle this bone
+        </label>
+        <div id="jiggle-tuning-sliders"></div>
+        <div class="row" style="margin-top: 8px">
+          <button id="btn-jiggle-reset">Reset this bone</button>
+        </div>
+        <p class="hint" style="margin-top: 10px">Poke</p>
+        <div class="row" id="jiggle-poke-row"></div>
+        <p class="readout mono" id="jiggle-readout">nothing jiggling</p>
+      </div>
+
+      <!-- 6. Declarative mount --------------------------------------->
       <div class="section">
         <h2>Declarative mount</h2>
         <p class="hint">
@@ -412,6 +485,7 @@
         createMemo,
         createEffect,
         createResource,
+        onCleanup,
         untrack,
         on,
       } from "solid-js";
@@ -429,6 +503,10 @@
         createProceduralAnimator,
         bakeAnimator,
         createBrowPatterns,
+        createVRMJiggle,
+        listJiggleCandidates,
+        JIGGLE_ZONES,
+        JIGGLE_UPDATE_ORDER,
         VISEME_PRESETS,
       } from "../../dist/index.js";
       import {
@@ -533,6 +611,36 @@
         },
       };
 
+      // Jiggle: the zones, the motions that give it something to react to, and
+      // the pokes. Zones are shortcuts for groups of bones — the state is the
+      // set of bones, not the zones.
+      const ZONES = Object.keys(JIGGLE_ZONES);
+
+      const MOTIONS = [
+        { label: "Bounce", value: "bounce" },
+        { label: "Shake", value: "shake" },
+        { label: "Stand still", value: "none" },
+      ];
+
+      const POKES = [
+        { label: "↑", velocity: { y: 2 } },
+        { label: "↓", velocity: { y: -2 } },
+        { label: "←", velocity: { x: -2 } },
+        { label: "→", velocity: { x: 2 } },
+        { label: "⇢", velocity: { z: 2 } },
+        { label: "⇠", velocity: { z: -2 } },
+      ];
+
+      // One slider per jiggle option. `lever` is a vector; its three components
+      // are built separately below.
+      const TUNING = [
+        { key: "hz", label: "hz", min: 0.5, max: 8, step: 0.1, digits: 1 },
+        { key: "damping", label: "damping", min: 0, max: 1, step: 0.01, digits: 2 },
+        { key: "gain", label: "gain", min: 0, max: 2, step: 0.01, digits: 2 },
+        { key: "length", label: "length (m)", min: 0.02, max: 0.5, step: 0.01, digits: 2 },
+        { key: "maxAngle", label: "max angle °", min: 0, max: 30, step: 1, digits: 0 },
+      ];
+
       // --- Plain three.js scene, exactly as in the other examples --------
       // Solid doesn't render three.js here; it only owns the lifecycle of
       // what goes *into* this scene.
@@ -596,6 +704,41 @@
       }
 
       /**
+       * A labelled range input, in the same markup the static sliders use.
+       * Returns `set(value)` to move it from code — which is how a signal's
+       * value gets back onto the control.
+       */
+      function addSlider(
+        container,
+        { label, min, max, step = 0.01, value, digits = 2 },
+        onInput,
+      ) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "slider";
+        wrapper.innerHTML =
+          `<div><span>${label}</span><span class="value"></span></div>` +
+          `<input type="range" min="${min}" max="${max}" step="${step}" />`;
+
+        const input = wrapper.querySelector("input");
+        const output = wrapper.querySelector(".value");
+
+        const set = (next) => {
+          input.value = String(next);
+          output.textContent = Number(next).toFixed(digits);
+        };
+        set(value);
+
+        input.addEventListener("input", () => {
+          const next = Number(input.value);
+          output.textContent = next.toFixed(digits);
+          onInput(next);
+        });
+
+        container.append(wrapper);
+        return { input, set };
+      }
+
+      /**
        * `<For each={items()}>` plus a selected-class binding, as two effects.
        *
        * They're deliberately separate: the list only re-renders when its source
@@ -625,22 +768,50 @@
         const [keepPrevious, setKeepPrevious] = createSignal(false);
 
         const [bodyMode, setBodyMode] = createSignal("procedural");
-        const [idleOn, setIdleOn] = createSignal(true);
+        const [breathingOn, setBreathingOn] = createSignal(true);
+        const [swayOn, setSwayOn] = createSignal(true);
+        const [noiseOn, setNoiseOn] = createSignal(true);
+        const [bobOn, setBobOn] = createSignal(false);
         const [lookAtOn, setLookAtOn] = createSignal(true);
         const [clipUrl, setClipUrl] = createSignal(null);
+        const [clipSpeed, setClipSpeed] = createSignal(1);
         const [gestureName, setGestureName] = createSignal(null);
+        const [gestureSpeed, setGestureSpeed] = createSignal(1);
 
         const [manualPose, setManualPose] = createSignal({});
         const [selectedBone, setSelectedBone] = createSignal(null);
         const [snapshot, setSnapshot] = createSignal(null);
 
         const [emotion, setEmotion] = createSignal(null);
+        const [emotionWeight, setEmotionWeight] = createSignal(1);
         const [brow, setBrow] = createSignal(null);
+        const [browWeight, setBrowWeight] = createSignal(1);
         const [autoBlinkOn, setAutoBlinkOn] = createSignal(true);
         const [gazeOn, setGazeOn] = createSignal(true);
         const [blinkWeight, setBlinkWeight] = createSignal(0);
+        const [winkLeft, setWinkLeft] = createSignal(0);
+        const [winkRight, setWinkRight] = createSignal(0);
+        const [gazeYaw, setGazeYaw] = createSignal(0);
+        const [gazePitch, setGazePitch] = createSignal(0);
         const [speakOn, setSpeakOn] = createSignal(false);
         const [visemes, setVisemes] = createSignal({});
+
+        // Jiggle. Which bones jiggle, and how each is tuned, are signals; the
+        // controller is rebuilt per model and made to match them.
+        const [jiggleOn, setJiggleOn] = createSignal(true);
+        const [jiggleMotion, setJiggleMotion] = createSignal("bounce");
+        const [jiggleBones, setJiggleBones] = createSignal(
+          new Set(["chest", "hips"].flatMap((zone) => JIGGLE_ZONES[zone])),
+        );
+        const [jiggleTuning, setJiggleTuning] = createSignal({}); // target -> options
+        const [jiggleTarget, setJiggleTarget] = createSignal(null);
+        const [jiggleIntensity, setJiggleIntensity] = createSignal(1);
+        const [jiggleAmbient, setJiggleAmbient] = createSignal(0);
+        const [jiggleSmoothing, setJiggleSmoothing] = createSignal(0.03);
+
+        // The per-bone sliders, filled in by `addSlider` further down. Declared
+        // here because the effect that syncs them runs first.
+        const jiggleSliders = {};
 
         const [fps, setFps] = createSignal(0);
         const [second, setSecond] = createSignal(null);
@@ -669,15 +840,15 @@
           if (!avatar) return null;
 
           // Layers are kept alongside the stack so they can be added and
-          // removed as the toggles change.
+          // removed as the toggles change. The idle isn't one of them: its
+          // options are fixed at construction, so the stack effect below
+          // builds a fresh one whenever a toggle moves.
           const gesture = createGestureAnimator(GESTURES);
-          const idle = createIdleAnimator();
           const look = createLookAtAnimator({ target: camera });
 
           return {
             animator: createProceduralAnimator(avatar.vrm, [gesture]),
             gesture,
-            idle,
             look,
           };
         });
@@ -690,6 +861,13 @@
           // whatever was crossfading on the old one.
           currentAction = null;
           return avatar ? new THREE.AnimationMixer(avatar.vrm.scene) : null;
+        });
+
+        // Jiggle gets a controller per model, like everything else. It starts
+        // empty: the effects further down fill it from the signals above.
+        const jiggle = createMemo(() => {
+          const avatar = vrm.avatar();
+          return avatar ? createVRMJiggle(avatar.vrm, { zones: [] }) : null;
         });
 
         // --- The one per-frame registration ----------------------------------
@@ -714,6 +892,16 @@
             const openness = 0.35 + 0.3 * (1 + Math.sin(speakTime * 24)) * 0.5;
             face()?.viseme.setAll({ [vowel]: openness });
           }
+        });
+
+        // Jiggle is a layer on top, so it must run AFTER whatever animates the
+        // rig. `order` says so: it sorts after every default-order callback,
+        // wherever and whenever they register. Here the body driver is the one
+        // callback above, so registration order would happen to work — but the
+        // moment a driver registers later (a second component, a mode that
+        // mounts its own), only an explicit order keeps it right.
+        createVRMUpdate(vrm.avatar, (delta) => jiggle()?.update(delta), {
+          order: JIGGLE_UPDATE_ORDER,
         });
 
         // --- Mode exclusivity -------------------------------------------------
@@ -747,8 +935,16 @@
           const stack = procedural();
           if (!stack) return;
 
-          const wantIdle = idleOn();
           const wantLook = lookAtOn();
+          const parts = {
+            breathing: breathingOn(),
+            sway: swayOn(),
+            noise: noiseOn(),
+            bob: bobOn(),
+          };
+          const idle = Object.values(parts).some(Boolean)
+            ? createIdleAnimator(parts)
+            : null;
 
           untrack(() => {
             // Rebuild rather than patch: composition order matters, and
@@ -757,7 +953,7 @@
               stack.animator.remove(layer);
             }
             stack.animator.add(stack.gesture);
-            if (wantIdle) stack.animator.add(stack.idle);
+            if (idle) stack.animator.add(idle);
             if (wantLook) stack.animator.add(stack.look);
           });
         });
@@ -769,7 +965,13 @@
           const name = gestureName();
           if (!stack) return;
 
-          if (name) stack.gesture.play(name, { crossFade: 0.3 });
+          // Speed is read untracked: it applies to the NEXT gesture, rather
+          // than restarting the one in flight every time the slider moves.
+          if (name)
+            stack.gesture.play(name, {
+              crossFade: 0.3,
+              speed: untrack(gestureSpeed),
+            });
           else stack.gesture.stop({ crossFade: 0.3 });
         });
 
@@ -801,6 +1003,11 @@
             }
             currentAction = next;
           });
+        });
+
+        createEffect(() => {
+          const current = mixer();
+          if (current) current.timeScale = clipSpeed();
         });
 
         // --- Manual posing ------------------------------------------------------
@@ -836,7 +1043,12 @@
           const current = face();
           if (!current) return;
           if (gazeOn()) current.eye.gaze(camera);
-          else current.eye.clearGaze();
+          else {
+            // One effect, in this order: clearing resets the angles, so
+            // setting them has to come after it, not race it.
+            current.eye.clearGaze();
+            current.eye.setGazeAngles(gazeYaw(), gazePitch());
+          }
         });
 
         createEffect(() => {
@@ -844,14 +1056,18 @@
           if (!current) return;
           // The auto-blink FSM owns the same channel, so a manual eyelid only
           // makes sense with it switched off.
-          if (!autoBlinkOn()) current.eye.blink(blinkWeight());
+          if (!autoBlinkOn()) {
+            current.eye.blink(blinkWeight());
+            current.eye.blinkLeft(winkLeft());
+            current.eye.blinkRight(winkRight());
+          }
         });
 
         createEffect(() => {
           const current = face();
           if (!current) return;
           const name = emotion();
-          if (name) current.emotion.setExclusive(name);
+          if (name) current.emotion.setExclusive(name, emotionWeight());
           else current.emotion.reset();
         });
 
@@ -859,7 +1075,7 @@
           const current = face();
           if (!current) return;
           const shape = brow();
-          if (shape) current.brow.setExclusive(shape);
+          if (shape) current.brow.setExclusive(shape, browWeight());
           else current.brow.reset();
         });
 
@@ -869,6 +1085,88 @@
           // While "speak" runs, the frame loop owns the visemes instead.
           if (!speakOn()) current.viseme.setAll(visemes());
         });
+
+        // --- Jiggle: the controller is a projection of the signals ----------------
+        // Master switch, global knobs, then the bones. Each is its own effect
+        // and each re-runs for a new controller, which is what carries every
+        // setting over to the next model.
+
+        createEffect(() => {
+          const current = jiggle();
+          if (!current) return;
+          current.enabled = jiggleOn();
+          current.intensity = jiggleIntensity();
+          current.ambient = jiggleAmbient();
+          current.smoothing = jiggleSmoothing();
+        });
+
+        // The bones that jiggle, and their tuning. `enable` on a bone that is
+        // already on RETUNES it and keeps its spring moving, so running this on
+        // every slider tick is smooth rather than a restart. The sliders are
+        // synced in the same effect: they show what the controller resolved
+        // (a preset, or the node's own axis), which only exists after it ran.
+        createEffect(() => {
+          const current = jiggle();
+          if (!current) return;
+
+          const bones = jiggleBones();
+          const tuning = jiggleTuning();
+
+          for (const target of current.list()) {
+            if (!bones.has(target)) current.disable(target);
+          }
+          for (const target of bones) current.enable(target, tuning[target]);
+
+          const target = jiggleTarget();
+          const enabled = !!target && bones.has(target);
+          const resolved = enabled ? current.getOptions(target) : null;
+
+          for (const [key, slider] of Object.entries(jiggleSliders)) {
+            slider.input.disabled = !resolved;
+            if (resolved) slider.set(key.startsWith("lever.") ? resolved.lever[key.slice(6)] : resolved[key]);
+          }
+          el("#toggle-jiggle-bone").checked = enabled;
+          el("#toggle-jiggle-bone").disabled = !target;
+        });
+
+        // Something for the physics to react to: moving the whole avatar is the
+        // simplest way to make a body accelerate. A clip or a pose would do as
+        // well. This is an ordinary driver, at the default order.
+        createEffect(() => {
+          const avatar = vrm.avatar();
+          const motion = jiggleMotion();
+          if (!avatar || motion === "none") return;
+
+          const home = avatar.scene.position.clone();
+          let time = 0;
+
+          onCleanup(
+            avatar.registerUpdate((delta) => {
+              time += delta;
+              if (motion === "bounce") {
+                // |sin| lands hard at the bottom of every hop — the spike in
+                // acceleration the soft mass lags behind.
+                avatar.scene.position.y =
+                  home.y + Math.abs(Math.sin(time * Math.PI * 1.4)) * 0.12;
+              } else {
+                avatar.scene.position.x =
+                  home.x + Math.sin(time * Math.PI * 5) * 0.045;
+              }
+            }),
+          );
+          onCleanup(() => avatar.scene.position.copy(home));
+        });
+
+        // Live angles, painted from a timer straight into the DOM.
+        const readoutTimer = setInterval(() => {
+          const bones = jiggle()?.debug().bones ?? [];
+          el("#jiggle-readout").textContent = bones.length
+            ? bones
+                .map((b) => `${b.target.padEnd(16)} ${b.angle.toFixed(2).padStart(6)}°`)
+                .join("\n")
+            : "nothing jiggling";
+        }, 120);
+        onCleanup(() => clearInterval(readoutTimer));
 
         // --- The render loop -------------------------------------------------
 
@@ -1037,6 +1335,60 @@
           }
         });
 
+        // Jiggle: motion chips, zone chips (a zone is active when ALL its bones
+        // are on), and the bone picker.
+        createEffect(() => markActive(el("#jiggle-motion-row"), jiggleMotion()));
+
+        createEffect(() => {
+          const bones = jiggleBones();
+          for (const button of el("#jiggle-zone-row").querySelectorAll("button")) {
+            const members = JIGGLE_ZONES[button.dataset.value];
+            button.classList.toggle("active", members.every((b) => bones.has(b)));
+          }
+        });
+
+        createEffect(() => {
+          const avatar = vrm.avatar();
+          const target = body();
+          const select = el("#jiggle-bone");
+          select.replaceChildren();
+
+          // Humanoid bones a zone could use, plus whatever else in the
+          // skeleton looks worth jiggling (a bust bone, a tail, a ribbon…).
+          const humanoid = target
+            ? [...new Set(ZONES.flatMap((zone) => JIGGLE_ZONES[zone]))].filter((name) =>
+                target.hasBone(name),
+              )
+            : [];
+          const nodes = avatar ? listJiggleCandidates(avatar.vrm) : [];
+
+          for (const [label, names] of [
+            ["Humanoid bones", humanoid],
+            ["Model nodes", nodes],
+          ]) {
+            if (!names.length) continue;
+            const group = document.createElement("optgroup");
+            group.label = label;
+            for (const name of names) {
+              const option = document.createElement("option");
+              option.value = name;
+              option.textContent = name;
+              group.append(option);
+            }
+            select.append(group);
+          }
+
+          // Keep the selection while there is no model to pick from (a clear,
+          // a load in flight) — otherwise the choice is lost on every swap.
+          const previous = untrack(jiggleTarget);
+          const all = [...humanoid, ...nodes];
+          if (!all.length) return;
+
+          const next = all.includes(previous) ? previous : (humanoid[0] ?? nodes[0]);
+          select.value = next;
+          setJiggleTarget(next);
+        });
+
         // --- Input -> signals ---------------------------------------------------
 
         let objectUrl = null;
@@ -1080,8 +1432,17 @@
           );
         }
 
-        el("#toggle-idle").addEventListener("change", (event) =>
-          setIdleOn(event.target.checked),
+        el("#toggle-breathing").addEventListener("change", (event) =>
+          setBreathingOn(event.target.checked),
+        );
+        el("#toggle-sway").addEventListener("change", (event) =>
+          setSwayOn(event.target.checked),
+        );
+        el("#toggle-noise").addEventListener("change", (event) =>
+          setNoiseOn(event.target.checked),
+        );
+        el("#toggle-bob").addEventListener("change", (event) =>
+          setBobOn(event.target.checked),
         );
         el("#toggle-lookat").addEventListener("change", (event) =>
           setLookAtOn(event.target.checked),
@@ -1160,6 +1521,167 @@
           body()?.setPose(saved);
         });
 
+        // Sliders whose value is a signal. Each is built once and moved from
+        // code with `.set()` when the signal is reset.
+        addSlider(
+          el("#gesture-speed"),
+          { label: "Gesture speed", min: 0.25, max: 3, value: 1 },
+          setGestureSpeed,
+        );
+        addSlider(
+          el("#clip-speed"),
+          { label: "Clip speed", min: 0.25, max: 2.5, value: 1 },
+          setClipSpeed,
+        );
+        const emotionWeightSlider = addSlider(
+          el("#emotion-weight"),
+          { label: "Intensity", min: 0, max: 1, value: 1 },
+          setEmotionWeight,
+        );
+        const browWeightSlider = addSlider(
+          el("#brow-weight"),
+          { label: "Brow weight", min: 0, max: 1, value: 1 },
+          setBrowWeight,
+        );
+
+        // Manual lids and gaze only mean something with the thing that owns
+        // that channel switched off — so moving them switches it off.
+        const manualEyes = (setter) => (value) => {
+          setAutoBlinkOn(false);
+          el("#toggle-blink").checked = false;
+          setter(value);
+        };
+        const winkSliders = [
+          addSlider(el("#wink-sliders"), { label: "Wink left", min: 0, max: 1, value: 0 }, manualEyes(setWinkLeft)),
+          addSlider(el("#wink-sliders"), { label: "Wink right", min: 0, max: 1, value: 0 }, manualEyes(setWinkRight)),
+        ];
+        const gazeSliders = [
+          addSlider(
+            el("#gaze-sliders"),
+            { label: "Gaze yaw °", min: -40, max: 40, step: 1, digits: 0, value: 0 },
+            (value) => {
+              setGazeOn(false);
+              el("#toggle-gaze").checked = false;
+              setGazeYaw(value);
+            },
+          ),
+          addSlider(
+            el("#gaze-sliders"),
+            { label: "Gaze pitch °", min: -30, max: 30, step: 1, digits: 0, value: 0 },
+            (value) => {
+              setGazeOn(false);
+              el("#toggle-gaze").checked = false;
+              setGazePitch(value);
+            },
+          ),
+        ];
+
+        // --- Jiggle input ---------------------------------------------------------
+        const patchTuning = (patch) => {
+          const target = jiggleTarget();
+          if (!target) return;
+          setJiggleTuning((prev) => ({ ...prev, [target]: { ...prev[target], ...patch } }));
+        };
+
+        for (const { key, ...config } of TUNING) {
+          jiggleSliders[key] = addSlider(
+            el("#jiggle-tuning-sliders"),
+            { ...config, value: 0 },
+            (value) => patchTuning({ [key]: value }),
+          );
+        }
+
+        // `lever` is retuned as a whole vector, so each axis starts from what the
+        // bone is currently using.
+        for (const axis of ["x", "y", "z"]) {
+          jiggleSliders[`lever.${axis}`] = addSlider(
+            el("#jiggle-tuning-sliders"),
+            { label: `lever ${axis}`, min: -1, max: 1, value: 0 },
+            (value) => {
+              const target = jiggleTarget();
+              const current = target && jiggle()?.getOptions(target)?.lever;
+              if (current) patchTuning({ lever: { ...current, [axis]: value } });
+            },
+          );
+        }
+
+        renderChips(el("#jiggle-motion-row"), MOTIONS, setJiggleMotion);
+
+        renderChips(el("#jiggle-zone-row"), ZONES, (zone) => {
+          const members = JIGGLE_ZONES[zone];
+          setJiggleBones((prev) => {
+            const next = new Set(prev);
+            const all = members.every((b) => prev.has(b));
+            for (const bone of members) {
+              if (all) next.delete(bone);
+              else next.add(bone);
+            }
+            return next;
+          });
+        });
+
+        addSlider(
+          el("#jiggle-global-sliders"),
+          { label: "Jiggle intensity", min: 0, max: 3, value: 1 },
+          setJiggleIntensity,
+        );
+        addSlider(
+          el("#jiggle-global-sliders"),
+          { label: "Ambient (m/s²)", min: 0, max: 2, value: 0 },
+          setJiggleAmbient,
+        );
+        addSlider(
+          el("#jiggle-global-sliders"),
+          { label: "Smoothing (s)", min: 0.005, max: 0.15, step: 0.005, digits: 3, value: 0.03 },
+          setJiggleSmoothing,
+        );
+
+        el("#toggle-jiggle").addEventListener("change", (event) =>
+          setJiggleOn(event.target.checked),
+        );
+
+        el("#jiggle-bone").addEventListener("change", (event) =>
+          setJiggleTarget(event.target.value),
+        );
+
+        el("#toggle-jiggle-bone").addEventListener("change", (event) => {
+          const target = jiggleTarget();
+          if (!target) return;
+          setJiggleBones((prev) => {
+            const next = new Set(prev);
+            if (event.target.checked) next.add(target);
+            else next.delete(target);
+            return next;
+          });
+        });
+
+        // Dropping the overrides isn't enough on its own — the controller has
+        // merged them already — so switch the bone off first; the effect turns
+        // it back on, fresh, with its defaults.
+        el("#btn-jiggle-reset").addEventListener("click", () => {
+          const target = jiggleTarget();
+          if (!target) return;
+          jiggle()?.disable(target);
+          setJiggleTuning((prev) => {
+            const { [target]: _dropped, ...rest } = prev;
+            return rest;
+          });
+        });
+
+        renderChips(el("#jiggle-poke-row"), POKES.map((p) => p.label), (label) => {
+          const target = jiggleTarget();
+          const poke = POKES.find((p) => p.label === label);
+          if (target && poke) jiggle()?.impulse(target, poke.velocity);
+        });
+
+        const allUp = document.createElement("button");
+        allUp.textContent = "all ↑";
+        allUp.addEventListener("click", () => {
+          const current = jiggle();
+          current?.list().forEach((name) => current.impulse(name, { y: 2 }));
+        });
+        el("#jiggle-poke-row").append(allUp);
+
         el("#toggle-blink").addEventListener("change", (event) =>
           setAutoBlinkOn(event.target.checked),
         );
@@ -1201,6 +1723,17 @@
           setSpeakOn(false);
           setVisemes({});
           setBlinkWeight(0);
+          setWinkLeft(0);
+          setWinkRight(0);
+          setEmotionWeight(1);
+          setBrowWeight(1);
+
+          emotionWeightSlider.set(1);
+          browWeightSlider.set(1);
+          for (const slider of winkSliders) slider.set(0);
+          for (const slider of gazeSliders) slider.set(0);
+          setGazeYaw(0);
+          setGazePitch(0);
 
           el("#toggle-speak").checked = false;
           el("#blink-weight").value = "0";

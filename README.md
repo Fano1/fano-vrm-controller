@@ -3,9 +3,10 @@
 A thin, tree-shakeable wrapper around [`@pixiv/three-vrm`](https://github.com/pixiv/three-vrm)
 that simplifies loading and controlling VRM avatars in Three.js: one call to load
 a model, a facade for facial expression + lip-sync, a Mixamo animation
-retargeter, and a procedural animation system that generates body motion at
-runtime — all built on top of the standard VRM humanoid rig, so it works
-across VRoid, VRChat, and generic models.
+retargeter, a procedural animation system that generates body motion at
+runtime, and jiggle physics that makes the body settle after it moves — all
+built on top of the standard VRM humanoid rig, so it works across VRoid,
+VRChat, and generic models.
 
 `three` and `@pixiv/three-vrm` are **peer dependencies** — you bring your own
 versions. React / `@react-three/fiber` and `solid-js` are optional peer deps,
@@ -49,6 +50,7 @@ loop again.
 | `createProceduralAnimator` | Generate motion at runtime — idle, look-at, gestures; bake it to a clip | [6](#6-procedural-animation--motion-without-a-fbx) |
 | `createVRM` / `createFrameLoop` | Solid bindings — reactive loading, disposal, and the frame loop | [7](#7-solid) |
 | `useVRM` / `useFrameLoop` | React bindings that never re-render for loading, progress, or frames | [8](#8-react) |
+| `createVRMJiggle` | Secondary-motion physics — bones that wobble and settle, layered on whatever animates the rig | [9](#9-jiggle-physics) |
 
 Every piece is optional and independently importable — pull in the loader alone
 if that's all you need.
@@ -57,7 +59,7 @@ if that's all you need.
 
 | Import path | Consumes | Use it for |
 | --- | --- | --- |
-| `@fano/vrm-controller` | three + @pixiv/three-vrm | Loading, face control, Mixamo animation, procedural animation |
+| `@fano/vrm-controller` | three + @pixiv/three-vrm | Loading, face control, Mixamo animation, procedural animation, jiggle physics |
 | `@fano/vrm-controller/r3f` | + react + @react-three/fiber | `<Vrm url="..." />` and `useVRM()` in React Three Fiber |
 | `@fanoalone/vrm-controller/react` | + react | Hooks and a frame loop for React with your own renderer — [section 8](#8-react) |
 | `@fano/vrm-controller/solid` | + solid-js | `createVRM()` and a frame loop for Solid — [section 7](#7-solid) |
@@ -83,7 +85,7 @@ const avatar = await loadVRM(url, {
 type VRMAvatar = {
   vrm: VRM;                                   // the raw @pixiv/three-vrm instance
   scene: THREE.Group;                         // === vrm.scene
-  registerUpdate(fn: (delta: number) => void): () => void;
+  registerUpdate(fn: (delta: number) => void, options?: { order?: number }): () => void;
   update(delta: number): void;
   dispose(): void;
 };
@@ -91,9 +93,10 @@ type VRMAvatar = {
 
 **The animation-engine seam.** `registerUpdate(fn)` adds a per-frame callback
 that runs every frame *before* `vrm.update(delta)`. `avatar.update(delta)` runs
-every registered callback (in registration order), then `vrm.update(delta)`
-last — always last, so spring bones and look-at react to the final pose. This
-is the one seam everything else in this package hooks into:
+every registered callback (in registration order, unless you say otherwise —
+see below), then `vrm.update(delta)` last — always last, so spring bones and
+look-at react to the final pose. This is the one seam everything else in this
+package hooks into:
 
 ```ts
 const stop = avatar.registerUpdate((delta) => {
@@ -101,6 +104,21 @@ const stop = avatar.registerUpdate((delta) => {
   mixer.update(delta); // Mixamo AnimationMixer
 });
 ```
+
+**Ordering.** Registration order is the default, but it is fragile: anything
+that tears a driver down and registers it again — a mode switch in a UI — puts
+it *after* whatever was already there. When something has to run on top of the
+rig's animation, say so with `order` (lower runs first, ties keep registration
+order, default `0`):
+
+```ts
+avatar.registerUpdate((delta) => jiggle.update(delta), { order: 100 });
+```
+
+Each call is its own registration (the same function twice runs twice, and each
+returned function removes only its own), and an updater unregistered mid-frame
+is skipped if it hasn't run yet. `jiggle.attach(avatar)` is the one-liner for
+the case above — see [section 9](#9-jiggle-physics).
 
 Because a Mixamo clip only ever carries skeletal tracks (never expression
 tracks), and the face controllers only ever touch expression weights / raw
@@ -434,7 +452,9 @@ for the live demo.
 
 The one pairing that *doesn't* combine is Mixamo playback and procedural
 animation — both own the normalized bone rig, so pick one per model (see
-section 6). Everything else layers freely.
+section 6). Everything else layers freely — including jiggle physics, which
+owns no bones at all and sits on top of whichever of the two is running (see
+[section 9](#9-jiggle-physics)).
 
 ## React Three Fiber
 
@@ -479,7 +499,7 @@ The `/solid` entry ships no JSX, so no `babel-preset-solid` pass runs over
 | --- | --- |
 | `createVRM(url, options?)` | Reactive load. Tracks a url signal, attaches to a `scene`, disposes on url change / unmount — including loads that land *after* the url changed again. Exposes `avatar` / `loading` / `progress` / `error`, plus `resource` for `<Suspense>`. |
 | `createFrameLoop(cb, options?)` | The rAF loop Solid doesn't come with. Seconds, not ms; clamps the delta so a backgrounded tab can't detonate spring bones; pausable; cancels on cleanup. |
-| `createVRMUpdate(avatar, fn)` | The reactive form of `registerUpdate` — re-registers when the avatar changes identity, so a model swap can't leave a driver bound to a disposed rig. |
+| `createVRMUpdate(avatar, fn, options?)` | The reactive form of `registerUpdate` — re-registers when the avatar changes identity, so a model swap can't leave a driver bound to a disposed rig. `options.order` places it among the other drivers. |
 | `Vrm` | Declarative mount: `<Show>` / `<For>` become the lifecycle. Renders nothing to the DOM. |
 
 Everything in sections 1–6 works from Solid without a Solid-specific wrapper,
@@ -492,7 +512,8 @@ const face = createMemo(() => {
   return avatar ? createVRMFace(avatar.vrm) : null;
 });
 
-// 2. createVRMUpdate registers whatever needs a frame.
+// 2. createVRMUpdate registers whatever needs a frame. `{ order }` places it
+//    among the others — jiggle passes a high one so it runs last.
 createVRMUpdate(vrm.avatar, (delta) => face()?.update(delta));
 
 // 3. State lives in signals; the model is a projection of it.
@@ -513,8 +534,8 @@ way and runs in every mode.
 
 See [`docs/solid-example/`](./docs/solid-example/solid-example.md) for the full
 API reference, SSR notes, a recipe per feature — expressions, brows, visemes,
-gestures, retargeting, baking — and a live demo that runs all of it at once and
-lets you swap the model underneath it.
+gestures, retargeting, baking, jiggle — and a live demo that runs all of it at
+once and lets you swap the model underneath it.
 
 ## 8. React
 
@@ -552,7 +573,7 @@ hook re-renders only for the one thing it reads.
 | `useVRM(url, options?)` | Load, attach to a `scene`, dispose on url change / unmount. Returns a stable handle; the caller never re-renders for it. Survives StrictMode without a second download. |
 | `useVRMStatus` / `useVRMAvatar` / `useVRMError` / `useVRMProgress` | Opt-in subscriptions. Progress is quantized to whole percents. |
 | `useVRMEffect(vrm, effect, deps?)` | Build controllers against the loaded avatar with no render in between; re-runs on a model swap, and cleans up *before* the avatar is disposed. |
-| `useVRMUpdate(vrm, fn)` | The per-frame form of `registerUpdate` — follows the avatar across swaps. |
+| `useVRMUpdate(vrm, fn, options?)` | The per-frame form of `registerUpdate` — follows the avatar across swaps. `options.order` places it among the other drivers. |
 | `useFrameLoop(cb, options?)` | The rAF loop React doesn't come with. Seconds, not ms; clamped delta; pausable; stable controller. |
 | `Vrm` | Declarative mount. Renders nothing to the DOM; callbacks arrive by subscription, not state. |
 
@@ -564,9 +585,59 @@ source of truth so a model swap re-applies every control.
 useVRMEffect(vrm, () => void face.current?.emotion.setExclusive(mood), [mood]);
 ```
 
+One rig, one owner falls out of the component tree: make each body mode a
+component whose effects own the rig while it is mounted, and unmounting it hands
+the rig back *before* the next mode starts. Jiggle physics is the exception —
+it owns nothing, so it just sits on top (`jiggle.attach(avatar)` inside a
+`useVRMEffect`).
+
 See [`docs/react-example/`](./docs/react-example/react-example.md) for the full
 API reference, SSR and StrictMode notes, a recipe per feature, and a live demo
-with a render counter on screen — so you can watch what does and doesn't render.
+— a Vite app with a render counter on screen, so you can watch what does and
+doesn't render, and panels for every control: per-bone posing, Mixamo clips,
+gestures, visemes, brows, and jiggle with a per-bone editor.
+
+## 9. Jiggle physics
+
+```ts
+const jiggle = createVRMJiggle(avatar.vrm, { zones: ["chest", "hips"] });
+const detach = jiggle.attach(avatar); // runs after whatever animates the rig
+
+jiggle.enable("head", { hz: 2.5, gain: 0.6 }); // add or retune a bone
+jiggle.impulse("chest", { y: 1 });             // a kick, in m/s
+jiggle.intensity = 1.5;                        // exaggerate everything
+```
+
+Each jiggling bone carries a **soft mass on a lever**: the lever point's
+acceleration is measured from the live rig in world space, the mass lags behind
+it on a damped spring, and the bone leans toward wherever the mass has gone.
+Everything is metres, hertz and degrees. It reacts to *whatever is moving the
+model* — a Mixamo clip, a procedural animator, a pose you are dragging, or the
+whole avatar moving through the scene — and with no motion there is no jiggle.
+
+**It layers; it doesn't own the rig.** Each frame it works out what a bone's
+rotation would be without its own previous nudge, then adds a fresh one on top,
+so it composes with any driver and leaves no residue when switched off. Because
+it adds *on top*, it has to run after whatever writes the base pose — which is
+what `attach` (a `registerUpdate` with a late `order`) is for.
+
+| | |
+| --- | --- |
+| `createVRMJiggle(vrm, options?)` | `zones` (`chest`, `torso`, `hips`, `head`, `shoulders`, `thighs`), per-`bones` overrides, `intensity`, `ambient`, `smoothing` |
+| `jiggle.attach(avatar)` | Register after the rig's drivers; returns `detach()` |
+| `jiggle.enable(target, options?)` | Start a bone, or retune it without restarting its spring — `hz`, `damping`, `gain`, `length`, `lever`, `maxAngle` |
+| `jiggle.impulse(target, velocity)` | A kick in m/s — a poke, a hit, a footstep |
+| `listJiggleCandidates(vrm)` | The model's own non-humanoid bones (a bust, a tail, a ribbon) worth jiggling **by name** |
+
+Rotating a humanoid bone moves everything parented to it, so humanoid jiggle
+reads as the upper body settling after a bounce. For a localised wobble, give
+`enable()` a non-humanoid node's name. Directions are authored in the VRM 1.0
+convention and mirrored for 0.x models, like everything else here.
+
+See [`docs/jiggle-example/`](./docs/jiggle-example/jiggle-example.md) for the
+full API, the physics, the guards against teleports and stalls, and recipes. The
+React and Solid demos both have a jiggle panel — a per-bone editor, pokes, and a
+bouncing avatar to drive it — that keeps working as you switch the body driver.
 
 ## Development
 
@@ -590,9 +661,13 @@ reactive primitive is an inert stub and the tests would silently pass nothing.
 The React tests mount real components with `react-dom` under `happy-dom`
 (selected per file by a `// @vitest-environment` docblock) and **count renders**
 — that is the contract the entry is built on — while the store and frame-loop
-logic underneath is tested with no React at all. Nothing renders, so the live `docs/*-example/*.html`
-demos are how you actually see any of this on screen (`bunx serve .`, then open
-the demo you want).
+logic underneath is tested with no React at all. The jiggle tests build a rig
+from **real** three.js objects (only the `VRM` wrapper is fake), so the
+world-space acceleration, mirroring and write-through logic is checked against
+three's own math rather than a mock of it. Nothing renders, so the live demos are
+how you actually see any of this on screen: the `docs/*-example/*.html` ones
+(`bunx serve .`, then open the demo you want) and the React example, which is a
+Vite app (`cd docs/react-example && bun install && bun run dev`).
 
 ## License
 

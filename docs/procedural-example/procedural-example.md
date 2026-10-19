@@ -77,6 +77,13 @@ function backToIdle() {
 }
 ```
 
+If your UI re-registers a driver when the mode changes instead of dispatching
+from one updater, registration order stops being something you control. Anything
+that has to run **after** the rig's driver — jiggle physics is the usual one —
+should say so with `registerUpdate(fn, { order })` (lower runs first, default `0`)
+rather than rely on who registered first. See
+[jiggle physics](../jiggle-example/jiggle-example.md).
+
 Face control is unaffected either way. `createVRMFace` only touches expression
 weights and morph targets, so it composes with either path — the demo runs
 auto-blink and eye-gaze the whole time:
@@ -421,6 +428,17 @@ avatar.registerUpdate((delta) => {
 face.speak("hello there");
 gestures.play("nod");
 ```
+
+**Make the body settle after it moves.** Jiggle physics owns no bones — it
+reads the rig's actual motion and adds a small spring-driven lean on top — so it
+layers on the animator (or a Mixamo clip) without either knowing about it:
+
+```ts
+const jiggle = createVRMJiggle(avatar.vrm, { zones: ["chest", "hips", "head"] });
+jiggle.attach(avatar); // after the animator, however the animator is registered
+```
+
+See [`docs/jiggle-example/`](../jiggle-example/jiggle-example.md).
 
 **Tune the idle at runtime.** Animators are cheap; rebuild and swap rather than
 mutating one. The removed layer's bones relax on the next frame.

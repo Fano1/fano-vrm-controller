@@ -196,6 +196,50 @@ This keeps VRM systems updated, such as spring bones, expressions, look-at behav
 
 ---
 
+## Per-Frame Callbacks: `registerUpdate`
+
+Anything else that needs a frame — a Mixamo mixer, the auto-blink FSM, a
+procedural animator, jiggle physics — hooks in through `registerUpdate`, so you
+still make exactly one `avatar.update(delta)` call:
+
+```ts
+const stop = avatar.registerUpdate((delta) => mixer.update(delta));
+
+avatar.update(delta); // runs every registered callback, THEN vrm.update(delta)
+
+stop(); // unregister
+```
+
+`vrm.update(delta)` always runs **last**, so spring bones and look-at react to
+the final pose.
+
+### Ordering
+
+Callbacks run in registration order by default. That is fragile whenever
+something tears a driver down and registers it again — switching between a clip
+and a procedural animator in a UI puts the new driver *after* anything that was
+already registered. When something has to run on top of the rig's animation,
+give it an `order`:
+
+```ts
+avatar.registerUpdate((delta) => mixer.update(delta)); // order 0 (default)
+avatar.registerUpdate((delta) => jiggle.update(delta), { order: 100 });
+```
+
+Lower runs first, ties keep registration order, and the default is `0` — so a
+negative `order` runs before the defaults.
+
+A few details worth knowing:
+
+* Each call is its own registration. Registering the same function twice runs it
+  twice, and each returned `stop` removes only its own.
+* It is safe to register or unregister from inside a callback. The frame in
+  flight finishes on the list it started with, and a callback unregistered
+  before its turn is skipped. A callback added mid-frame first runs next frame.
+* `dispose()` clears every callback.
+
+---
+
 ## Disposing the Avatar
 
 When you no longer need the avatar, call:
@@ -409,10 +453,18 @@ type VRMLoadProgress = {
 type VRMAvatar = {
   vrm: VRM;
   scene: THREE.Group;
+  registerUpdate: (
+    fn: (delta: number) => void,
+    options?: { order?: number },
+  ) => () => void;
   update: (delta: number) => void;
   dispose: () => void;
 };
 ```
+
+`registerUpdate` returns the function that unregisters the callback. `order`
+(lower first, default `0`) places it among the others — see
+[Per-Frame Callbacks](#per-frame-callbacks-registerupdate).
 
 ---
 
@@ -503,7 +555,7 @@ This loader handles:
 * loading the `.vrm` file
 * extracting `gltf.userData.vrm`
 * adding the VRM scene to your scene if provided
-* exposing a simple `update(delta)` function
+* exposing a simple `update(delta)` function, and the `registerUpdate` seam for everything that needs a frame
 * exposing a simple `dispose()` function
 * supporting loading progress
 * supporting advanced Pixiv loader options
