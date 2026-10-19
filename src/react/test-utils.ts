@@ -27,7 +27,8 @@ export type FakeAvatar = VRMAvatar & {
 export function makeAvatar(url: string): FakeAvatar {
 	const scene = new THREE.Group();
 	scene.name = url;
-	const updaters = new Set<VRMUpdateFn>();
+	// Mirrors the real loader's contract: by `order`, ties in registration order.
+	const updaters: { fn: VRMUpdateFn; order: number }[] = [];
 
 	const avatar: FakeAvatar = {
 		url,
@@ -35,21 +36,28 @@ export function makeAvatar(url: string): FakeAvatar {
 		trace: [],
 		vrm: { scene } as unknown as VRM,
 		scene,
-		updaterCount: () => updaters.size,
+		updaterCount: () => updaters.length,
 
-		registerUpdate(fn) {
-			updaters.add(fn);
-			return () => void updaters.delete(fn);
+		registerUpdate(fn, options) {
+			const entry = { fn, order: options?.order ?? 0 };
+			let index = updaters.length;
+			while (index > 0 && updaters[index - 1]!.order > entry.order) index -= 1;
+			updaters.splice(index, 0, entry);
+
+			return () => {
+				const at = updaters.indexOf(entry);
+				if (at >= 0) updaters.splice(at, 1);
+			};
 		},
 
 		update(delta) {
-			for (const fn of updaters) fn(delta);
+			for (const { fn } of [...updaters]) fn(delta);
 			avatar.trace.push("vrm");
 		},
 
 		dispose() {
 			avatar.disposed = true;
-			updaters.clear();
+			updaters.length = 0;
 			scene.removeFromParent();
 		},
 	};

@@ -8,7 +8,7 @@
  */
 
 import { useEffect, type DependencyList } from "react";
-import type { VRMAvatar } from "../core/feature/loader";
+import type { VRMAvatar, VRMUpdateOptions } from "../core/feature/loader";
 import type { VRMHandle } from "./react-type";
 import { useLatest } from "./react-utils";
 
@@ -97,6 +97,9 @@ export function useVRMEffect(
  * disposed rig. `fn` is called through a ref, so an inline closure that captures
  * fresh props or state each render is always current and never re-registers.
  *
+ * `options.order` places it among the other drivers — lower runs first, default
+ * `0`. Read when the registration is made, so changing it re-registers.
+ *
  * ```ts
  * useVRMUpdate(vrm, (delta, avatar) => {
  *   mixer.current?.update(delta);
@@ -106,10 +109,15 @@ export function useVRMEffect(
 export function useVRMUpdate(
 	handle: VRMHandle,
 	fn: (delta: number, avatar: VRMAvatar) => void,
+	options: VRMUpdateOptions = {},
 ): void {
 	const latest = useLatest(fn);
+	const { order } = options;
 
-	useVRMEffect(handle, (avatar) =>
-		avatar.registerUpdate((delta) => latest.current(delta, avatar)),
+	useVRMEffect(
+		handle,
+		(avatar) =>
+			avatar.registerUpdate((delta) => latest.current(delta, avatar), { order }),
+		[order],
 	);
 }

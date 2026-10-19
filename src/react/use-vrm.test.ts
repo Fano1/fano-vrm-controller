@@ -422,6 +422,29 @@ describe("useVRMUpdate", () => {
 		expect(avatar.trace).toEqual(["driver", "vrm"]);
 	});
 
+	it("places itself among other drivers by `order`, however they register", async () => {
+		function Host(props: { driver: boolean }) {
+			const vrm = useVRM("/a.vrm");
+			useVRMUpdate(vrm, (_d, avatar) => avatar.trace.push("late"), { order: 100 });
+			// The rig driver mounts and unmounts with a mode switch — after the late
+			// one is already registered.
+			return props.driver ? createElement(Driver, { vrm }) : null;
+		}
+
+		function Driver(props: { vrm: VRMHandle }) {
+			useVRMUpdate(props.vrm, (_d, avatar) => avatar.trace.push("driver"));
+			return null;
+		}
+
+		const view = mount(createElement(Host, { driver: false }));
+		const avatar = await finish(0);
+
+		view.rerender(createElement(Host, { driver: true }));
+		avatar.update(0.016);
+
+		expect(avatar.trace).toEqual(["driver", "late", "vrm"]);
+	});
+
 	it("sees fresh props through an inline closure without re-registering", async () => {
 		const seen: number[] = [];
 		let avatar!: FakeAvatar;

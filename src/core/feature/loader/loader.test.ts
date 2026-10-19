@@ -159,6 +159,75 @@ describe("loadVRM", () => {
     expect(mocks.fakeVRM.update).toHaveBeenCalledWith(0.016);
   });
 
+  it("runs updaters by `order` (lower first), ties in registration order", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const order: string[] = [];
+
+    avatar.registerUpdate(() => order.push("late"), { order: 100 });
+    avatar.registerUpdate(() => order.push("a"));
+    avatar.registerUpdate(() => order.push("first"), { order: -10 });
+    avatar.registerUpdate(() => order.push("b"), { order: 0 });
+    avatar.registerUpdate(() => order.push("late2"), { order: 100 });
+    mocks.fakeVRM.update.mockImplementation(() => order.push("vrm"));
+
+    avatar.update(0.016);
+
+    expect(order).toEqual(["first", "a", "b", "late", "late2", "vrm"]);
+  });
+
+  it("keeps a late updater last even when a driver registers after it", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const order: string[] = [];
+
+    // The React mode-switch case: jiggle registered first, then the rig driver
+    // is torn down and re-registered afterwards.
+    avatar.registerUpdate(() => order.push("jiggle"), { order: 100 });
+    const stopOld = avatar.registerUpdate(() => order.push("driver-old"));
+    stopOld();
+    avatar.registerUpdate(() => order.push("driver-new"));
+
+    avatar.update(0.016);
+
+    expect(order).toEqual(["driver-new", "jiggle"]);
+  });
+
+  it("treats each registration independently, even for the same function", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const updater = vi.fn();
+
+    const stopFirst = avatar.registerUpdate(updater);
+    avatar.registerUpdate(updater);
+    avatar.update(0.016);
+    expect(updater).toHaveBeenCalledTimes(2);
+
+    stopFirst();
+    avatar.update(0.016);
+    expect(updater).toHaveBeenCalledTimes(3);
+  });
+
+  it("is safe to register and unregister from inside an updater", async () => {
+    const avatar = await loadVRM("/avatar.vrm");
+    const calls: string[] = [];
+    let stopB = () => {};
+
+    avatar.registerUpdate(() => {
+      calls.push("a");
+      stopB();
+      avatar.registerUpdate(() => calls.push("added"));
+    });
+    stopB = avatar.registerUpdate(() => calls.push("b"));
+
+    // An updater unregistered before its turn is skipped, not given a last tick,
+    // and one added mid-frame waits for the next frame.
+    avatar.update(0.016);
+    expect(calls).toEqual(["a"]);
+
+    // The next frame sees both changes.
+    calls.length = 0;
+    avatar.update(0.016);
+    expect(calls).toEqual(["a", "added"]);
+  });
+
   it("unregisters an updater via its returned disposer", async () => {
     const avatar = await loadVRM("/avatar.vrm");
     const updater = vi.fn();
